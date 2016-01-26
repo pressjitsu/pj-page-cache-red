@@ -1,6 +1,6 @@
 # Redis Page Cache for WordPress
 
-A Redis-backed full page caching plugin for WordPress, extremely flexible and fast. Requires a running [Redis server http://redis.io/] and the [PHP Redis PECL https://github.com/phpredis/phpredis] extension.
+A Redis-backed full page caching plugin for WordPress, extremely flexible and fast. Requires a running [Redis server](http://redis.io/) and the [PHP Redis PECL](https://github.com/phpredis/phpredis) extension.
 
 ## Requirements
 
