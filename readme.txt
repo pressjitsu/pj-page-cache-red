@@ -13,6 +13,16 @@ A Redis-backed full page caching plugin for WordPress, extremely flexible and fa
 
 A Redis-backed full page caching plugin for WordPress, extremely flexible and fast. Requires a running [Redis server](http://redis.io/) and the [PHP Redis PECL](https://github.com/phpredis/phpredis) extension.
 
+= Features =
+
+* Serves full cached pages from memory
+* Caches redirects, 404s and other response codes
+* Just-in-time cache expiry/regeneration
+* Cache status headers for monitoring hit rate
+* Smart and flexible cache invalidation
+* Serves stale cache during regeneration
+* Configurable list of ignored cookies and request variables
+
 For an installation and configuration guide please visit the [full documentation](https://github.com/pressjitsu/pj-page-cache).
 
 == Installation ==
