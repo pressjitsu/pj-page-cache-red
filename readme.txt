@@ -23,7 +23,7 @@ A Redis-backed full page caching plugin for WordPress, extremely flexible and fa
 * Serves stale cache during regeneration
 * Configurable list of ignored cookies and request variables
 
-For an installation and configuration guide please visit the [full documentation](https://github.com/pressjitsu/pj-page-cache).
+For an installation and configuration guide please visit the [full documentation on GitHub](https://github.com/pressjitsu/pj-page-cache-red).
 
 == Installation ==
 
@@ -33,7 +33,7 @@ For an installation and configuration guide please visit the [full documentation
 1. Create a symbolic link from wp-content/advanced-cache.php to wp-content/plugins/redis-page-cache/advanced-cache.php
 1. Enable WP_CACHE in your wp-config.php file
 
-For an installation and configuration guide please visit the [full documentation](https://github.com/pressjitsu/pj-page-cache).
+For an installation and configuration guide please visit the [full documentation](https://github.com/pressjitsu/pj-page-cache-red).
 
 == Changelog ==
 
