@@ -13,6 +13,8 @@ class Redis_Page_Cache {
 	private static $redis;
     private static $redis_host = '127.0.0.1';
     private static $redis_port = 6379;
+	private static $redis_database = 0;
+	private static $redis_password;
 
 	private static $ttl = 300;
 	private static $unique = array();
@@ -189,6 +191,10 @@ class Redis_Page_Cache {
 
 		$redis = new Redis;
 		$connect = $redis->connect( self::$redis_host, self::$redis_port );
+		if (strlen(self::$redis_password) > 1)
+			$redis->auth(self::$redis_password);
+
+		$redis->select(self::$redis_database);
 
 		if ( true === $connect ) {
 			$redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP );
@@ -332,6 +338,8 @@ class Redis_Page_Cache {
 		$keys = array(
             'redis_host',
             'redis_port',
+			'redis_database',
+			'redis_password',
 			'ttl',
 			'unique',
 			'ignore_cookies',
