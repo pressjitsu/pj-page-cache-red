@@ -3,7 +3,7 @@ Contributors: pressjitsu, soulseekah
 Tags: cache, caching, performance, redis
 Requires at least: 4.4
 Tested up to: 4.5
-Stable tag: 0.8.1
+Stable tag: 0.8.2
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -36,6 +36,9 @@ For an installation and configuration guide please visit the [full documentation
 For an installation and configuration guide please visit the [full documentation](https://github.com/pressjitsu/pj-page-cache-red).
 
 == Changelog ==
+
+= 0.8.2 =
+* Fix missing $ introduced in 0.8.1
 
 = 0.8.1 =
 * Add more debug headers

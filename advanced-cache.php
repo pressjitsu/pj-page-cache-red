@@ -381,7 +381,7 @@ class Redis_Page_Cache {
 			if ( isset( $pj_user_config['page_cache'][ $key ] ) ) {
 				self::$$key = $pj_user_config['page_cache'][ $key ];
 			} elseif ( isset( $redis_page_cache_config[ $key ] ) ) {
-				self::$key = $redis_page_cache_config[ $key ];
+				self::$$key = $redis_page_cache_config[ $key ];
 			}
 		}
 	}
