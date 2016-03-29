@@ -2,8 +2,8 @@
 Contributors: pressjitsu, soulseekah
 Tags: cache, caching, performance, redis
 Requires at least: 4.4
-Tested up to: 4.4
-Stable tag: 0.8
+Tested up to: 4.5
+Stable tag: 0.8.1
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -23,7 +23,7 @@ A Redis-backed full page caching plugin for WordPress, extremely flexible and fa
 * Serves stale cache during regeneration
 * Configurable list of ignored cookies and request variables
 
-For an installation and configuration guide please visit the [full documentation on GitHub](https://github.com/pressjitsu/pj-page-cache-red).
+For an installation and configuration guide please visit the [full documentation on GitHub](https://github.com/pressjitsu/pj-page-cache-red). If you need any assistance please reach out to [Pressjitsu](https://pressjitsu.com) via live chat or e-mail, or open a new thread in the WordPress.org support forums.
 
 == Installation ==
 
@@ -36,6 +36,12 @@ For an installation and configuration guide please visit the [full documentation
 For an installation and configuration guide please visit the [full documentation](https://github.com/pressjitsu/pj-page-cache-red).
 
 == Changelog ==
+
+= 0.8.1 =
+* Add more debug headers
+* Delete cached entries on post update by default, instead of expiring them
+* Add configuration options for database selection and Redis authentication
+* Don't cache 5xx errors
 
 = 0.8 =
 * Initial public release.

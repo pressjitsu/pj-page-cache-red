@@ -3,7 +3,7 @@
  * Plugin Name: Redis Page Cache
  * Plugin URI: https://pressjitsu.com
  * Description: Redis-backed full page caching plugin for WordPress.
- * Version: 0.8
+ * Version: 0.8.1
  * License: GPLv3 or later
  *
  * To install create a symbolic link to the advanced-cache.php dropin from

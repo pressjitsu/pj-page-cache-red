@@ -125,6 +125,8 @@ if ( is_single() && has_tag( 'my-special-tag' ) ) {
 Redis_Page_Cache::clear_cache_by_flag( 'my-special-tag' );
 ```
 
+Note that all the clear cache methods expire (but don't delete) cache by default. If you're running in an environment where background cache regeneration is available, an expired flag will cause that background regeneration while serving a stale copy to the visitor. If this is not the desired behavior, you can use the optional $expire argument in the clear cache methods (set to false) to force delete a flag/URL.
+
 ## Support
 
 If you need help installing and configuring this plugin, feel free to reach out to us via e-mail: support@pressjitsu.com.
