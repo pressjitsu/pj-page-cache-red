@@ -238,7 +238,7 @@ class Redis_Page_Cache {
 	private static function parse_request_uri( $request_uri ) {
 		// Prefix the request URI with a host to avoid breaking on requests that start
 		// with a // which parse_url() would treat as containing the hostname.
-		$request_uri = 'http://null' . $request_uri;
+		$request_uri = 'http://null' . strtolower($request_uri);
 		$parsed = parse_url( $request_uri );
 
 		if ( ! empty( $parsed['query'] ) )
