@@ -116,6 +116,8 @@ class Redis_Page_Cache {
 			$expired = $cache['updated'] + self::$ttl < time();
 
 			if ( ! empty( $cache['flags'] ) ) {
+				$deleted = false;
+				
 				// Check whether any flags have been deleted.
 				if ( ! empty( $deleted_flags ) &&
 					count( array_intersect( $cache['flags'], array_keys( $deleted_flags ) ) ) > 0 ) {
