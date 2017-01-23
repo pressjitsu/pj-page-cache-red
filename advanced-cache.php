@@ -56,6 +56,11 @@ class Redis_Page_Cache {
 		// Parse configuration.
 		self::maybe_user_config();
 
+		// Make sure TEST_COOKIE is always set on a wp-login.php POST request
+		if ( strpos( $_SERVER['REQUEST_URI'], '/wp-login.php' ) === 0 && strtoupper( $_SERVER['REQUEST_METHOD'] ) == 'POST' ) {
+			$_COOKIE['wordpress_test_cookie'] = 'WP Cookie check';
+		}
+
 		// Some things just don't need to be cached.
 		if ( self::maybe_bail() )
 			return;
