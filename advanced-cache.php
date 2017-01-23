@@ -17,10 +17,12 @@ class Redis_Page_Cache {
 	private static $redis_auth = '';
 
 	private static $ttl = 300;
+	private static $max_ttl = 3600;
 	private static $unique = array();
 	private static $headers = array();
 	private static $ignore_cookies = array( 'wordpress_test_cookie' );
 	private static $ignore_request_keys = array( 'utm_source', 'utm_medium', 'utm_term', 'utm_content', 'utm_campaign' );
+	private static $whitelist_cookies = null;
 	private static $bail_callback = false;
 	private static $debug = false;
 	private static $gzip = true;
@@ -119,10 +121,9 @@ class Redis_Page_Cache {
 			list( $expired_flags, $deleted_flags ) = $redis->exec();
 
 			$expired = $cache['updated'] + self::$ttl < time();
+			$deleted = false;
 
 			if ( ! empty( $cache['flags'] ) ) {
-				$deleted = false;
-				
 				// Check whether any flags have been deleted.
 				if ( ! empty( $deleted_flags ) &&
 					count( array_intersect( $cache['flags'], array_keys( $deleted_flags ) ) ) > 0 ) {
@@ -135,6 +136,12 @@ class Redis_Page_Cache {
 					count( array_intersect( $cache['flags'], array_keys( $expired_flags ) ) ) > 0 ) {
 					$expired = true;
 				}
+			}
+
+			// This entry is very old, consider it deleted.
+			if ( $serve_cache && $cache['updated'] + self::$max_ttl < time() ) {
+				$serve_cache = false;
+				$deleted = true;
 			}
 
 			// Cache is outdated or set to expire.
@@ -322,7 +329,26 @@ class Redis_Page_Cache {
 			unset( $_REQUEST[ $key ] );
 		}
 
-		// @todo: Maybe remove $_COOKIE and related.
+		// If we have a whitelist set, clear out everything that does not
+		// match the list, unless we're in the wp-admin (but not in admin-ajax.php).
+		$is_wp_admin = defined( 'WP_ADMIN' ) && WP_ADMIN;
+		$is_admin_ajax = defined( 'DOING_AJAX' ) && DOING_AJAX;
+		if ( ! empty( self::$whitelist_cookies ) && ( ! $is_wp_admin || $is_admin_ajax ) ) {
+			foreach ( $_COOKIE as $key => $value ) {
+				$whitelist = false;
+
+				foreach ( self::$whitelist_cookies as $part ) {
+					if ( strpos( $key, $part ) === 0 ) {
+						$whitelist = true;
+						break;
+					}
+				}
+
+				if ( ! $whitelist ) {
+					unset( $_COOKIE[ $key ] );
+				}
+			}
+		}
 	}
 
 	/**
@@ -379,6 +405,7 @@ class Redis_Page_Cache {
 			'unique',
 			'ignore_cookies',
 			'ignore_request_keys',
+			'whitelist_cookies',
 			'bail_callback',
 			'debug',
 			'gzip',
