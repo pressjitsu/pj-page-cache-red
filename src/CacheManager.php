@@ -29,7 +29,7 @@ class CacheManager
     private $whitelist_cookies = null;
     private $bail_callback = false;
     private $debug = false;
-    private $gzip = true;
+    private $gzip = false;
 
     private $lock = false;
     private $cache = false;
@@ -80,6 +80,9 @@ class CacheManager
 
         // Some things just don't need to be cached.
         if ($this->maybe_bail()) {
+            if ($this->debug) {
+                header('X-Pj-Cache-Bail: bail');
+            }
             return;
         }
 
@@ -95,14 +98,16 @@ class CacheManager
             'unique' => $this->unique,
             'cookies' => $this->parse_cookies($_COOKIE),
         );
-        $cache = $this->checkRequestInCache($requestHash);
-
+        $results = $this->checkRequestInCache($requestHash);
+        $cache = $results['cache'];
+        $lock =  $results['lock'];
+        // error_log(print_r($cache['updated'], true), 4);
         $redis = $this->getRedisClient();
 
         // Something is in cache.
         if (is_array($cache) && ! empty($cache)) {
             $serve_cache = true;
-
+            // error_log('van cache', 4);
             if ($this->debug) {
                 header('X-Pj-Cache-Time: ' . $cache['updated']);
                 header('X-Pj-Cache-Flags: ' . implode(' ', $cache['flags']));
@@ -141,7 +146,7 @@ class CacheManager
             if ($expired && $serve_cache) {
                 // If it's not locked, lock it for regeneration and don't serve from cache.
                 if (! $lock) {
-                    $lock = $redis->set(sprintf('pjc-%s-lock', $this->request_hash), true, array( 'nx', 'ex' => 30 ));
+                    $lock = $this->redisSet(sprintf('pjc-%s-lock', $this->request_hash), true, array( 'nx', 'ex' => 30 ));
                     if ($lock) {
                         if ($this->can_fcgi_regenerate()) {
                             // Well, actually, if we can serve a stale copy but keep the process running
@@ -204,6 +209,11 @@ class CacheManager
         ob_start(array( __CLASS__, 'output_buffer' ));
     }
 
+    private function redisSet(string $key, string $value, array $ttl = []) {
+        $redis = $this->getRedisClient();
+        error_log("redis set called, key: " . $key, 4);
+        return $redis->set($key, $value, count($ttl) > 0 ? $ttl : null);
+    }
     public function checkRequestInCache($request_hash)
     {
         // Make sure requests with Authorization: headers are unique.
@@ -519,6 +529,7 @@ class CacheManager
         }
 
         $data['updated'] = time();
+        //error_log(print_r($data, true), 4);
         $data = $this->safeSerialize($data);
         if ($cache || $this->fcgi_regenerate) {
             $redis = $this->getRedisClient();
@@ -530,7 +541,8 @@ class CacheManager
             if ($cache) {
                 $key = sprintf('pjc-%s', $this->request_hash);
                 // Okay to cache.
-                $redis->set($key, $data);
+                $this->redisSet($key, $data);
+
             } else {
                 // Not okay, so delete any stale entry.
                 $redis->del($key);
@@ -767,4 +779,22 @@ class CacheManager
 
         return $this;
     }
+
+    /**
+     * @return boolean
+     */
+    public function isDebug()
+    {
+        return $this->debug;
+    }
+
+    /**
+     * @param boolean $debug
+     */
+    public function setDebug($debug)
+    {
+        $this->debug = $debug;
+    }
+
+    
 }
