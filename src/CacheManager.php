@@ -1,5 +1,6 @@
-<?php
-namespace Evista\RedisPageCache
+<?php 
+
+namespace RedisPageCache;
 
 /**
  * Redis Cache Dropin for WordPress
@@ -8,10 +9,11 @@ namespace Evista\RedisPageCache
  * enable page caching in your wp-config.php.
  */
 
-if ( ! defined( 'ABSPATH' ) )
-	die();
 
-class Redis_Page_Cache {
+class CacheManager {
+
+	private $redisClient;
+
 	private static $redis;
 	private static $redis_host = '127.0.0.1';
 	private static $redis_port = 6379;
@@ -39,6 +41,14 @@ class Redis_Page_Cache {
 	private static $flags = array();
 	private static $flags_expire = array();
 	private static $flags_delete = array();
+	
+	public function __construct($redisClient = \Redis) {
+		$this->redisClient = $redisClient;
+	}
+
+	public function getRedisClient() {
+		return $this->redisClient;
+	}
 
 	/**
 	 * Runs during advanced-cache.php
@@ -688,5 +698,9 @@ class Redis_Page_Cache {
 			'function' => array( __CLASS__, 'template_redirect' ), 'accepted_args' => 1 );
 	}
 }
+/*
+if ( ! defined( 'ABSPATH' ) )
+	die();
 
-Redis_Page_Cache::cache_init();
+CacheManager::cache_init();
+*/
