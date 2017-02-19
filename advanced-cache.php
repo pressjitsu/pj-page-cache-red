@@ -1,8 +1,8 @@
 <?php
 use RedisPageCache\CacheManagerFactory;
 
-if (!defined(VENDOR)) {
-    define('VENDOR', '..' . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'vendor');
+if (!defined('VENDOR')) {
+    define('VENDOR', ABSPATH . '..' . DIRECTORY_SEPARATOR . 'vendor');
 }
 
 require_once(VENDOR . '/autoload.php');
