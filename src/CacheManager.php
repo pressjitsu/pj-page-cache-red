@@ -96,6 +96,9 @@ class CacheManager
             'cookies' => $this->parse_cookies($_COOKIE),
         );
         $cache = $this->checkRequestInCache($requestHash);
+
+        $redis = $this->getRedisClient();
+
         // Something is in cache.
         if (is_array($cache) && ! empty($cache)) {
             $serve_cache = true;
