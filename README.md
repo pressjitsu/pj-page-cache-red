@@ -1,17 +1,17 @@
 # Redis Page Cache for WordPress
 
-A Redis-backed full page caching plugin for WordPress, extremely flexible and fast. Requires a running [Redis server](http://redis.io/) and the [PHP Redis PECL](https://github.com/phpredis/phpredis) extension.
+A Redis-backed full page caching plugin for WordPress, extremely flexible and fast. Requires a running [Redis server](http://redis.io/) and a Redis client package.
 
 ## Requirements
 
-Make sure you have a running Redis server and the PECL PHP Redis extension installed and active. Both can be found in packages in most Linux distributions. For example on Debian/Ubuntu:
+Redis server:
 
 ```
-sudo apt-get install redis-server php5-redis
+sudo apt-get install redis-server
 ```
 
-After installing the Redis PECL extension, make sure you restart your PHP server.
-
+This fork of the original package is beeing actively rewritten to use a redis package instead of the PECL extension. My most important plan is to add an interface to hint the current dependency injection.
+ 
 Make sure your Redis server has enough memory allocated to store your cached pages. The plugin compresses cached pages using gzip to lower memory usage. We recommend anywhere from 16 mb allocated just for page caching. Increase according to your hit-rate. We also recommend disabling flushing Redis cache to disk, and the `allkeys-lru` eviction policy to ensure the server can make more room for new cached pages by evicting older ones. Here is a sample extract from the redis.conf file:
 
 ```
