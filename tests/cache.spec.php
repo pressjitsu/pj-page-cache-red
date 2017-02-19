@@ -50,14 +50,32 @@ describe('CacheManager', function() {
   
   it('should return results when checks something available in cache', function(){
     $redis = $this->cacheManager->getRedisClient();
-    $redis->set("pjc-3e4c887c1c83086ac1766700ba0e2384", "result in redis");
+    $redis->set("pjc-3e4c887c1c83086ac1766700ba0e2384", $this->cacheManager->safeSerialize(["content" => "result in redis"]));
 
     $result = $this->cacheManager->checkRequestInCache(['request' => 'nothing.html']);
     
     assert(is_array($result), "result is not an array");
     assert(array_key_exists("cache", $result), "result array doesn't have a cache key");
-    assert($result["cache"] === "result in redis", 'Result is not [ "cache" => "result in redis", "lock" => null ]');
+    assert($result["cache"] === [ "content" => "result in redis" ], 'Result is not [ "cache" => ["content" => "result in redis"], "lock" => null ]');
     assert($result["lock"] === null, '$result["lock"] !== null');
+  });
+
+  it('should add example content to the redis cache', function(){
+    $key = "pjc-5bcc4473510ee608f6d3395d47f067b8";
+    // remove if exists
+    $redis = $this->cacheManager->getRedisClient();
+    $redis->del($key);
+    $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing2.html']);
+    $this->cacheManager->setRequestHash($hash); // temporary
+    $this->cacheManager->output_buffer("example content");
+    $expectedResult = "YTo2OntzOjY6Im91dHB1dCI7czoyMzoieJxLrUjMLchJVUjOzytJzSsBAC/sBggiO3M6NzoiaGVhZGVycyI7YTowOnt9czo1OiJmbGFncyI7YToxOntpOjA7czozNjoidXJsOmQ0MWQ4Y2Q5OGYwMGIyMDRlOTgwMDk5OGVjZjg0MjdlIjt9czo2OiJzdGF0dXMiO2I6MDtzOjQ6Imd6aXAiO2I6MTtzOjc6InVwZGF0ZWQiO2k6MTQ4NzUxNDU0Njt9";
+    $redis = $this->cacheManager->getRedisClient();
+    $rawResult = $redis->get($key);
+    $result = $this->cacheManager->safeDeSerialize($rawResult);
+    assert(is_array($result), "result is not an array");
+    assert(array_key_exists("output", $result), "result array doesn't have an 'output' key");
+    // hm there should be something in the output, because string comparision always fails, but not after md5 conversion
+    assert(md5($result["output"]) === "e9ab3ae8fb8cfd581194806809c00918" , '$result["output"] is not "x?K?H?-?IUH??+I?+/"');
   });
 
 });

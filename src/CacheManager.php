@@ -91,8 +91,7 @@ class CacheManager {
 			'unique' => $this->unique,
 			'cookies' => $this->parse_cookies( $_COOKIE ),
 		);
-		$this->checkRequestInCache($requestHash);
-
+		$cache = $this->checkRequestInCache($requestHash);
 		// Something is in cache.
 		if ( is_array( $cache ) && ! empty( $cache ) ) {
 			$serve_cache = true;
@@ -224,7 +223,10 @@ class CacheManager {
 			$this->keyFromHash($this->request_hash, 'lock'),
 		) );
 
-		return [ 'cache' => $cache, 'lock' => $lock ];
+		return [ 
+			'cache' => $cache ? $this->safeDeSerialize($cache) : null,
+			'lock' => $lock ? $this->safeDeSerialize($lock) : null
+			];
 	}
 
 	public function generateHashFomRequestParams(array $requestParams) :string {
@@ -485,23 +487,23 @@ class CacheManager {
 		}
 
 		$data['updated'] = time();
-
+		$data = $this->safeSerialize($data);
 		if ( $cache || $this->fcgi_regenerate ) {
 			$redis = $this->getRedisClient();
 			if ( ! $redis )
-				return $output;
-
-			$redis = $redis->multi();
-
+				throw new \Exception('Redis has gone.');
+				
+			$redis->multi();
 			if ( $cache ) {
+				$key = sprintf( 'pjc-%s', $this->request_hash );
 				// Okay to cache.
-				$redis->set( sprintf( 'pjc-%s', $this->request_hash ), $data );
+				$redis->set( $key, $data );
 			} else {
 				// Not okay, so delete any stale entry.
-				$redis->delete( sprintf( 'pjc-%s', $this->request_hash ) );
+				$redis->del( $key );
 			}
 
-			$redis->delete( sprintf( 'pjc-%s-lock', $this->request_hash ) );
+			$redis->del( sprintf( 'pjc-%s-lock', $this->request_hash ) );
 			$redis->exec();
 		}
 
@@ -512,13 +514,21 @@ class CacheManager {
 		return $output;
 	}
 
+	public function safeSerialize(array $data) {
+		return base64_encode(serialize($data));
+	}
+
+	public function safeDeSerialize(string $data) {
+		return unserialize(base64_decode($data));
+	}
+
 	/**
 	 * Essentially an md5 cache for domain.com/path?query used to
 	 * bust caches by URL when needed.
 	 */
 	private function get_url_hash( $url = false ) {
 		if ( ! $url )
-			return md5( $_SERVER['HTTP_HOST'] . $this->parse_request_uri( $_SERVER['REQUEST_URI'] ) );
+			return md5( $_SERVER['HTTP_HOST'] ?? '' . $this->parse_request_uri( $_SERVER['REQUEST_URI'] ?? '') );
 
 		$parsed = parse_url( $url );
 		$request_uri = ! empty( $parsed['path'] ) ? $parsed['path'] : '';
@@ -686,6 +696,16 @@ class CacheManager {
 		$GLOBALS['wp_filter']['template_redirect'][100]['pj-page-cache'] = array(
 			'function' => array( __CLASS__, 'template_redirect' ), 'accepted_args' => 1 );
 	}
+
+	public function getRequestHash() :string {
+		return $this->request_hash;
+	}
+
+	public function setRequestHash(string $hash) :CacheManager {
+		$this->request_hash = $hash;
+
+		return $this;
+	} 
 }
 /*
 if ( ! defined( 'ABSPATH' ) )
