@@ -3,6 +3,7 @@
     "description": "Redis backed page cache",
     "type": "wordpress-plugin",
     "require": {
+        "php": "^7.0",
         "johnpbloch/wordpress": "^4.7",
         "cheprasov/php-redis-client": "^1.6"
     },
