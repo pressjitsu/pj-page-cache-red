@@ -6,6 +6,10 @@ use RedisPageCache\CacheManagerFactory;
 use RedisClient\ClientFactory;
 
 describe('CacheManager', function() {
+  beforeEach(function(){
+    $this->cacheManager = CacheManagerFactory::getManager();
+  });
+
   it('should accept redis client as dependency', function() {
     $redisClient = ClientFactory::create([
       'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
@@ -16,6 +20,52 @@ describe('CacheManager', function() {
     assert(method_exists($cacheManager, 'getRedisClient'), 'no getRedisClient method exists');
     assert($cacheManager->getRedisClient() === $redisClient, 'injected redis is not the same as it was');
   });
+
+  it('should return empty results when checks something missing from cache', function(){
+    // are there something in the cache?
+		$requestHash = array(
+			'request' => 'no-redis-cache-test.html' . md5(microtime(true)),
+			'host' => '',
+			'https' => '',
+			'method' => 'GET',
+			'unique' => [],
+			'cookies' => [],
+		);
+		$result = $this->cacheManager->checkRequestInCache($requestHash);
+    assert($result === [ "cache" => null, "lock" => null ], 'Resulting array is not [ "cache" => null, "lock" => null ]');
+  });
+  
+  it('should generate a hash from request array', function(){
+    $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing.html']);
+    assert($hash === "3e4c887c1c83086ac1766700ba0e2384", "Hash is not match");
+  });
+
+  it('should create cache and lock keys from hash', function(){
+    $result = $this->cacheManager->keyFromHash("3e4c887c1c83086ac1766700ba0e2384");
+    assert($result === "pjc-3e4c887c1c83086ac1766700ba0e2384", 'cache key generation failed');
+
+    $result = $this->cacheManager->keyFromHash("3e4c887c1c83086ac1766700ba0e2384", "lock");
+    assert($result === "pjc-3e4c887c1c83086ac1766700ba0e2384-lock", 'lock cache key generation failed');
+  });
+  // 	sprintf( 'pjc-%s', $this->request_hash )
+  it('should return results when checks something available in cache', function(){
+    // are there something in the cache?
+		$requestHash = array(
+			'request' => 'no-redis-cache-test.html' . md5(microtime(true)),
+			'host' => '',
+			'https' => '',
+			'method' => 'GET',
+			'unique' => [],
+			'cookies' => [],
+		);
+
+    // fake hash:
+    //$hash = 
+
+		//$result = $this->cacheManager->checkRequestInCache($requestHash);
+    //assert($result === [ "cache" => null, "lock" => null ], 'Resulting array is not [ "cache" => null, "lock" => null ]');
+  });
+
 });
 
 
