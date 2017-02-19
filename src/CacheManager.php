@@ -707,9 +707,3 @@ class CacheManager {
 		return $this;
 	} 
 }
-/*
-if ( ! defined( 'ABSPATH' ) )
-	die();
-
-CacheManager::cache_init();
-*/

@@ -16,3 +16,20 @@
  * Please keep this helper plugin active for update notifications and future
  * helper and CLI functionality.
  */
+
+register_activation_hook(__FILE__, 'rpc_activate');
+register_deactivation_hook(__FILE__, 'rpc_deactivate');
+
+$target = content_url() . DIRECTORY_SEPARATOR . 'advanced-cache.php';
+
+function rpc_activate() {
+  // link advanced-cache.php into wp-content dirname  
+  $link = __DIR__ .  DIRECTORY_SEPARATOR . 'src/advanced-cache.php';
+  symlink($target, $link);
+}
+
+function rpc_deactivate() {
+  // delete 
+  unlink($target);
+}
+
