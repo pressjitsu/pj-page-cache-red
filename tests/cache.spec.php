@@ -47,23 +47,17 @@ describe('CacheManager', function() {
     $result = $this->cacheManager->keyFromHash("3e4c887c1c83086ac1766700ba0e2384", "lock");
     assert($result === "pjc-3e4c887c1c83086ac1766700ba0e2384-lock", 'lock cache key generation failed');
   });
-  // 	sprintf( 'pjc-%s', $this->request_hash )
+  
   it('should return results when checks something available in cache', function(){
-    // are there something in the cache?
-		$requestHash = array(
-			'request' => 'no-redis-cache-test.html' . md5(microtime(true)),
-			'host' => '',
-			'https' => '',
-			'method' => 'GET',
-			'unique' => [],
-			'cookies' => [],
-		);
+    $redis = $this->cacheManager->getRedisClient();
+    $redis->set("pjc-3e4c887c1c83086ac1766700ba0e2384", "result in redis");
 
-    // fake hash:
-    //$hash = 
-
-		//$result = $this->cacheManager->checkRequestInCache($requestHash);
-    //assert($result === [ "cache" => null, "lock" => null ], 'Resulting array is not [ "cache" => null, "lock" => null ]');
+    $result = $this->cacheManager->checkRequestInCache(['request' => 'nothing.html']);
+    
+    assert(is_array($result), "result is not an array");
+    assert(array_key_exists("cache", $result), "result array doesn't have a cache key");
+    assert($result["cache"] === "result in redis", 'Result is not [ "cache" => "result in redis", "lock" => null ]');
+    assert($result["lock"] === null, '$result["lock"] !== null');
   });
 
 });
