@@ -3,11 +3,17 @@
     "description": "Redis backed page cache",
     "type": "wordpress-plugin",
     "require": {
+        "johnpbloch/wordpress": "^4.7",
         "cheprasov/php-redis-client": "^1.6"
     },
     "require-dev": {
         "peridot-php/peridot": "^1.19"
     },
     "license": "MIT",
-    "minimum-stability": "dev"
+    "minimum-stability": "dev",
+    "autoload": {
+        "psr-4": {
+            "Evista\\RedisPageCache\\": "src/"
+        }
+    }
 }
