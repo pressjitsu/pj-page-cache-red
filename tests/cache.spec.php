@@ -1,6 +1,8 @@
 <?php
 
 use RedisPageCache\CacheManager;
+use RedisPageCache\CacheManagerFactory;
+
 use RedisClient\ClientFactory;
 
 describe('CacheManager', function() {
@@ -15,3 +17,5 @@ describe('CacheManager', function() {
     assert($cacheManager->getRedisClient() === $redisClient, 'injected redis is not the same as it was');
   });
 });
+
+
