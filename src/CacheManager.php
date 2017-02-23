@@ -63,9 +63,9 @@ class CacheManager
         header('X-Pj-Cache-Status: miss');
 
         if (function_exists('add_action')) {
-            add_action('clean_post_cache', array( __CLASS__, 'clean_post_cache' ));
-            add_action('transition_post_status', array( __CLASS__, 'transition_post_status' ), 10, 3);
-            add_action('template_redirect', array( __CLASS__, 'template_redirect' ), 100);
+            add_action('clean_post_cache', array( $this, 'clean_post_cache' ));
+            add_action('transition_post_status', array( $this, 'transition_post_status' ), 10, 3);
+            add_action('template_redirect', array( $this, 'template_redirect' ), 100);
         } else {
             $this->_add_action_compat();
         }
@@ -206,7 +206,7 @@ class CacheManager
         }
 
         // Cache it, smash it.
-        ob_start(array( __CLASS__, 'output_buffer' ));
+        ob_start(array( $this, 'output_buffer' ));
     }
 
     private function redisSet(string $key, string $value, array $ttl = []) {
@@ -761,11 +761,11 @@ class CacheManager
     {
         // Filters are not yet available, so hi-jack the $wp_filter global to add our actions.
         $GLOBALS['wp_filter']['clean_post_cache'][10]['pj-page-cache'] = array(
-            'function' => array( __CLASS__, 'clean_post_cache' ), 'accepted_args' => 1 );
+            'function' => array( $this, 'clean_post_cache' ), 'accepted_args' => 1 );
         $GLOBALS['wp_filter']['transition_post_status'][10]['pj-page-cache'] = array(
-            'function' => array( __CLASS__, 'transition_post_status' ), 'accepted_args' => 3 );
+            'function' => array( $this, 'transition_post_status' ), 'accepted_args' => 3 );
         $GLOBALS['wp_filter']['template_redirect'][100]['pj-page-cache'] = array(
-            'function' => array( __CLASS__, 'template_redirect' ), 'accepted_args' => 1 );
+            'function' => array( $this, 'template_redirect' ), 'accepted_args' => 1 );
     }
 
     public function getRequestHash() :string
