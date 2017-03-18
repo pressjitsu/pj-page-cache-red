@@ -450,7 +450,6 @@ class CacheManager
             'whitelist_cookies',
             'bail_callback',
             'debug',
-            'gzip',
         );
 
         foreach ($keys as $key) {
@@ -796,5 +795,10 @@ class CacheManager
         $this->debug = $debug;
     }
 
-    
+    public function setGzip(bool $value): CacheManager
+    {
+        $this->gzip = $value;
+
+        return $this;
+    }
 }
