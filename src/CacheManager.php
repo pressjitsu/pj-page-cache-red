@@ -2,6 +2,8 @@
 
 namespace RedisPageCache;
 
+use RedisPageCache\Service\Compressable;
+
 /**
  * Redis Cache Dropin for WordPress
  *
@@ -19,6 +21,8 @@ class CacheManager
     private $redis_port = 6379;
     private $redis_db = 0;
     private $redis_auth = '';
+
+    private $compressor;
 
     private $ttl = 300;
     private $max_ttl = 3600;
@@ -42,9 +46,10 @@ class CacheManager
     private $flags_expire = array();
     private $flags_delete = array();
     
-    public function __construct($redisClient = \Redis)
+    public function __construct(Compressable $compressor, $redisClient = \Redis)
     {
         $this->redisClient = $redisClient;
+        $this->compressor = $compressor;
     }
 
     public function getRedisClient()

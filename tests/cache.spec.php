@@ -2,6 +2,7 @@
 
 use RedisPageCache\CacheManager;
 use RedisPageCache\CacheManagerFactory;
+use RedisPageCache\Service\GzipCompressor;
 
 use RedisClient\ClientFactory;
 
@@ -15,7 +16,7 @@ describe('CacheManager', function () {
         'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
         'timeout' => 2,
         ]);
-        $cacheManager = new CacheManager($redisClient);
+        $cacheManager = new CacheManager(new GzipCompressor, $redisClient);
         //
         assert(method_exists($cacheManager, 'getRedisClient'), 'no getRedisClient method exists');
         assert($cacheManager->getRedisClient() === $redisClient, 'injected redis is not the same as it was');
@@ -60,7 +61,7 @@ describe('CacheManager', function () {
         assert($result["lock"] === null, '$result["lock"] !== null');
     });
 
-    it('should add example content to the redis cache', function () {
+    it('should add example content to the redis cache (with gzip)', function () {
         $this->cacheManager->setGzip(true);
         
         $key = "pjc-5bcc4473510ee608f6d3395d47f067b8";
@@ -70,16 +71,32 @@ describe('CacheManager', function () {
         $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing2.html']);
         $this->cacheManager->setRequestHash($hash); // temporary
         $this->cacheManager->output_buffer("example content");
-        
-        $expectedResult = "YTo2OntzOjY6Im91dHB1dCI7czoyMzoieJxLrUjMLchJVUjOzytJzSsBAC/sBggiO3M6NzoiaGVhZGVycyI7YTowOnt9czo1OiJmbGFncyI7YToxOntpOjA7czozNjoidXJsOmQ0MWQ4Y2Q5OGYwMGIyMDRlOTgwMDk5OGVjZjg0MjdlIjt9czo2OiJzdGF0dXMiO2I6MDtzOjQ6Imd6aXAiO2I6MTtzOjc6InVwZGF0ZWQiO2k6MTQ4NzUxNDU0Njt9";
+  
         $redis = $this->cacheManager->getRedisClient();
         $rawResult = $redis->get($key);
         $result = $this->cacheManager->safeDeSerialize($rawResult);
         assert(is_array($result), "result is not an array");
         assert(array_key_exists("output", $result), "result array doesn't have an 'output' key");
-        // hm there should be something in the output, because string comparision always fails, but not after md5 conversion
-        var_dump($result["output"]);
 
-        assert(md5($result["output"]) === "e9ab3ae8fb8cfd581194806809c00918", '$result["output"] is not "x?K?H?-?IUH??+I?+/"');
+        assert(md5($result["output"]) === "e9ab3ae8fb8cfd581194806809c00918", '$result["output"] is not "e9ab3ae8fb8cfd581194806809c00918"');
     });
+     it('should add example content to the redis cache without gzip', function () {
+        $this->cacheManager->setGzip(false);
+        
+        $key = "pjc-5bcc4473510ee608f6d3395d47f067b8";
+        // remove if exists
+        $redis = $this->cacheManager->getRedisClient();
+        $redis->del($key);
+        $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing2.html']);
+        $this->cacheManager->setRequestHash($hash); // temporary
+        $this->cacheManager->output_buffer("example content");
+        
+        $redis = $this->cacheManager->getRedisClient();
+        $rawResult = $redis->get($key);
+        $result = $this->cacheManager->safeDeSerialize($rawResult);
+        assert(is_array($result), "result is not an array");
+        assert(array_key_exists("output", $result), "result array doesn't have an 'output' key");
+        
+        assert($result["output"] === "example content", '$result["output"] is not "example content"');
+     });
 });
