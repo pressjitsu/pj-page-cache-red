@@ -18,6 +18,10 @@ describe('Flags', function () {
         // flag: url:/about
         $expireFlag->add('/about');
         $expireFlag->add('/luca');
-        $expireFlag->update(); 
+        $expireFlag->update();
+
+        $expireds = $expireFlag->getFromWithScores(timestamp());
+        error_log(print_r($expireds, true), 4);
+
     });
 });

@@ -16,7 +16,7 @@ class Flags
         $this->key = $key;
     }
 
-    public function getFromWithScores(string $from)
+    public function getFromWithScores(int $from)
     {
         $this->redisClient->zRangeByScore($this->key, $from, '+inf', array( 'withscores' => true ));
         $this->flagsFrom = $redis->exec();
@@ -33,6 +33,8 @@ class Flags
             $this->redisClient->zAdd($this->key, [$timestamp, $url]);
         }
         $this->redisClient->expire($this->key, $this->ttl);
+        
+        // remove expireds
         $this->redisClient->zRemRangeByScore($this->key, '-inf', $timestamp - $this->ttl);
         list($_, $_, $r, $count) = $this->redisClient->exec();
 
