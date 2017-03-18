@@ -70,7 +70,7 @@ describe('CacheManager', function () {
         $redis->del($key);
         $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing2.html']);
         $this->cacheManager->setRequestHash($hash); // temporary
-        $this->cacheManager->output_buffer("example content");
+        $this->cacheManager->outputBuffer("example content");
   
         $redis = $this->cacheManager->getRedisClient();
         $rawResult = $redis->get($key);
@@ -89,7 +89,7 @@ describe('CacheManager', function () {
         $redis->del($key);
         $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing2.html']);
         $this->cacheManager->setRequestHash($hash); // temporary
-        $this->cacheManager->output_buffer("example content");
+        $this->cacheManager->outputBuffer("example content");
         
         $redis = $this->cacheManager->getRedisClient();
         $rawResult = $redis->get($key);

@@ -9,4 +9,4 @@ require_once(VENDOR . '/autoload.php');
 
 $cacheManager = CacheManagerFactory::getManager();
 $cacheManager->setDebug(WP_DEBUG);
-$cacheManager->cache_init();
+$cacheManager->cacheInit();

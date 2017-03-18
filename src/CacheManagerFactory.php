@@ -4,6 +4,7 @@ namespace RedisPageCache;
 
 use RedisClient\ClientFactory;
 use RedisPageCache\Service\GzipCompressor;
+use RedisPageCache\Service\WPCompat;
 
 class CacheManagerFactory
 {
@@ -14,7 +15,7 @@ class CacheManagerFactory
             'timeout' => 2,
         ]);
         
-        $cacheManager = new CacheManager(new GzipCompressor, $redisClient);
+        $cacheManager = new CacheManager(new WPCompat, new GzipCompressor, $redisClient);
         return $cacheManager;
     }
 }
