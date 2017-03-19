@@ -3,6 +3,8 @@
 use RedisPageCache\CacheManager;
 use RedisPageCache\CacheManagerFactory;
 use RedisPageCache\Service\GzipCompressor;
+use RedisPageCache\Service\WPCompat;
+
 
 use RedisClient\ClientFactory;
 
@@ -16,7 +18,7 @@ describe('CacheManager', function () {
         'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
         'timeout' => 2,
         ]);
-        $cacheManager = new CacheManager(new GzipCompressor, $redisClient);
+        $cacheManager = new CacheManager(new WPCompat, new GzipCompressor, $redisClient);
         //
         assert(method_exists($cacheManager, 'getRedisClient'), 'no getRedisClient method exists');
         assert($cacheManager->getRedisClient() === $redisClient, 'injected redis is not the same as it was');

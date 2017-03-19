@@ -18,30 +18,35 @@ class Flags
 
     public function getFromWithScores(int $from)
     {
-        $this->redisClient->zRangeByScore($this->key, $from, '+inf', array( 'withscores' => true ));
-        $this->flagsFrom = $redis->exec();
+        error_log(print_r($from, true), 4);
+        $this->flagsFrom = $this->redisClient->zRangeByScore($this->key, $from, '+inf', array( 'withscores' => true ));
+
+        error_log(print_r($this->flagsFrom, true), 4);
         
         return $this->flagsFrom;
     }
 
     public function update()
     {
+        error_log('update flags');
+        if (empty($this->contents)) {
+            error_log('no flags');
+            return;
+        }
+        // redis> ZADD myzset 2 "two" 3 "three"
         $flags = array_unique($this->contents);
         $timestamp = time();
         $this->redisClient->multi();
+        $args = [];
         foreach ($flags as $url) {
-            $this->redisClient->zAdd($this->key, [$timestamp, $url]);
+            $args[$url] = $timestamp;
         }
+        $this->redisClient->zAdd($this->key, $args);
         $this->redisClient->expire($this->key, $this->ttl);
         
-        // remove expireds
+        // remove expired???
         $this->redisClient->zRemRangeByScore($this->key, '-inf', $timestamp - $this->ttl);
-        list($_, $_, $r, $count) = $this->redisClient->exec();
-
-        // Hard-limit the data size.
-        if ($count > 256) {
-            $this->redisClient->ZRemRangeByRank($this->key, 0, $count - 256 - 1);
-        }
+        $results = $this->redisClient->exec();
     }
 
     public function getAll(): array
@@ -58,7 +63,7 @@ class Flags
 
     public function includes(array $flags):bool
     {
-        if (emtpy($flags)) {
+        if (empty($flags)) {
             return false;
         };
         return count(array_intersect($flags, array_keys($this->flagsFrom))) > 0;

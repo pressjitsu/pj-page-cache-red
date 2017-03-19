@@ -5,29 +5,16 @@ namespace RedisPageCache;
 use RedisPageCache\Service\Compressable;
 use RedisPageCache\Service\WPCompat;
 use RedisPageCache\Redis\Flags;
-
-/**
- * Redis Cache Dropin for WordPress
- *
- * Create a symbolic link to this file from your wp-content directory and
- * enable page caching in your wp-config.php.
- */
-
+use RedisPageCache\Service\CacheServer;
 
 class CacheManager
 {
     private $wp;
     private $redisClient;
 
-    private $redis;
-    private $redis_host = '127.0.0.1';
-    private $redis_port = 6379;
-    private $redis_db = 0;
-    private $redis_auth = '';
-
     private $compressor;
 
-    private $ttl = 300;
+    private $ttl = 3;
     private $max_ttl = 3600;
     private $unique = array();
     private $headers = array();
@@ -45,17 +32,16 @@ class CacheManager
     private $fcgi_regenerate = false;
 
     // Flag requests and expire/delete them efficiently.
-    private $flags = array();
-    private $expireFlag;
-    private $deleteFlag;
+    private $expireFlags;
+    private $deleteFlags;
     
     public function __construct(WPCompat $wp, Compressable $compressor, $redisClient = \Redis)
     {
         $this->wp = $wp;
         $this->redisClient = $redisClient;
         $this->compressor = $compressor;
-        $this->expireFlag = new Flags('pjc-expired-flags');
-        $this->deleteFlag = new Flags('pjc-deleted-flags');
+        $this->expireFlags = new Flags('pjc-expired-flags', $this->redisClient);
+        $this->deleteFlags = new Flags('pjc-deleted-flags', $this->redisClient);
     }
 
     public function getRedisClient()
@@ -71,12 +57,10 @@ class CacheManager
         // Clear caches in bulk at the end.
         register_shutdown_function(array( $this, 'maybe_clear_caches' ));
 
-        header('X-Pj-Cache-Status: miss');
-
         $this->wp
             ->addAction('clean_post_cache', [$this, 'clean_post_cache'])
-            ->addAction('transition_post_status', [$this, 'transition_post_status'], null, 3)
-            ->addAction('transition_post_status', [$this, 'template_redirect'], 100);
+            ->addAction('transition_post_status', [$this, 'transition_post_status'], 10, 3)
+            ->addAction('template_redirect', [$this, 'template_redirect'], 100);
 
         // Parse configuration.
         $this->maybe_user_config();
@@ -107,17 +91,20 @@ class CacheManager
         $results = $this->checkRequestInCache($requestHash);
         $cache = $results['cache'];
         $lock =  $results['lock'];
-        // error_log(print_r($cache['updated'], true), 4);
-        $redis = $this->getRedisClient();
+        
+        error_log(print_r($cache, true), 4);
 
+        $cacheStatus = is_array($cache) ? 'cached' : 'miss';
+
+        header('X-Pj-Cache-Status: ' . $cacheStatus);
         // Something is in cache.
-        $this->getFromCache($cache);
+        $this->responseFromCache($cache ?: []);
 
         // Cache it, smash it.
         ob_start(array( $this, 'outputBuffer' ));
     }
 
-    private function getFromCache(array $cache, string $from)
+    private function responseFromCache(array $cache)
     {
         if (empty($cache)) {
             return;
@@ -129,14 +116,20 @@ class CacheManager
             header('X-Pj-Cache-Flags: ' . implode(' ', $cache['flags']));
         }
 
-        $this->expireFlag->getFromWithScores($cache['updated'] + $this->ttl);
-        $this->deleteFlag->getFromWithScores($cache['updated']);
+        $this->expireFlags->getFromWithScores($cache['updated'] + $this->ttl);
+        $this->deleteFlags->getFromWithScores($cache['updated']);
 
-        $expired = $his->expireFlags->includes($cache['flags']);
+        $serve_cache = true;
+
+        // flags are saved as ordered set and beside the actual page data
+        // expiration has the url and a timestamp of expiration in the ordered set
+        // this way if the url is in the expiration 
+        $expired = $this->expireFlags->includes($cache['flags']);
         $deleted = $this->deleteFlags->includes($cache['flags']);
 
         // Cache is outdated or set to expire.
         if ($expired && !$deleted) {
+            error_log('expired !deleted');
             // If it's not locked, lock it for regeneration and don't serve from cache.
             if (! $lock) {
                 $lock = $this->redisSet(sprintf('pjc-%s-lock', $this->request_hash), true, array( 'nx', 'ex' => 30 ));
@@ -154,6 +147,7 @@ class CacheManager
         }
 
         if (!$deleted && $cache['gzip']) {
+            error_log('!deleted and gzipped');
             if ($this->gzip) {
                 if ($this->debug) {
                     header('X-Pj-Cache-Gzip: true');
@@ -164,39 +158,31 @@ class CacheManager
                 $serve_cache = false;
             }
         }
-
+        error_log('servce cache? '. $serve_cache);
+        // serve the cached page
         if ($serve_cache) {
             // If we're regenareting in background, let everyone know.
             $status = ($this->fcgi_regenerate) ? 'expired' : 'hit';
             header('X-Pj-Cache-Status: ' . $status);
-
             if ($this->debug) {
                 header(sprintf('X-Pj-Cache-Expires: %d', $this->ttl - (time() - $cache['updated'])));
             }
+            // Actually send headers and echo content
 
-            // Output cached status code.
-            if (! empty($cache['status'])) {
-                http_response_code($cache['status']);
-            }
-
-            // Output cached headers.
-            if (is_array($cache['headers']) && ! empty($cache['headers'])) {
-                foreach ($cache['headers'] as $header) {
-                    header($header);
-                }
-            }
-
-            echo $cache['output'];
+            $cachedResponse = new CacheServer($cache);
+            $cachedResponse();
 
             // If we can regenerate in the background, do it.
             if ($this->fcgi_regenerate) {
                 fastcgi_finish_request();
                 pj_sapi_headers_clean();
             } else {
+                error_log('exit lesz');
                 exit;
             }
         }
     }
+
 
     private function redisSet(string $key, string $value, array $ttl = [])
     {
@@ -469,7 +455,7 @@ class CacheManager
             $cache = false;
         }
 
-        $data['flags'] = $this->flags;
+        $data['flags'] = array_merge($this->expireFlags->getAll(), $this->deleteFlags->getAll());
         $data['flags'][] = 'url:' . $this->get_url_hash();
         $data['flags'] = array_unique($data['flags']);
 
@@ -642,9 +628,9 @@ class CacheManager
             $flag = 'url:' . $this->get_url_hash($url);
 
             if ($expire) {
-                $this->flags_expire[] = $flag;
+                $this->expireFlags->add($flag);
             } else {
-                $this->flags_delete[] = $flag;
+                $this->deleteFlags->add($flag);
             }
         }
     }
@@ -663,9 +649,9 @@ class CacheManager
 
         foreach ($flags as $flag) {
             if ($expire) {
-                $this->flags_expire[] = $flag;
+                $this->expireFlags->add($flag);
             } else {
-                $this->flags_delete[] = $flag;
+                $this->deleteFlags->add($flag);
             }
         }
     }
@@ -675,20 +661,9 @@ class CacheManager
      */
     public function maybe_clear_caches()
     {
-        $sets = array();
-
-        if (! empty($this->flags_expire)) {
-            $sets['pjc-expired-flags'] = $this->flags_expire;
-        }
-
-        if (! empty($this->flags_delete)) {
-            $sets['pjc-deleted-flags'] = $this->flags_delete;
-        }
-
-        if (empty($sets)) {
-            return;
-        }
-
+        error_log('maybe clear cache'); 
+        $this->expireFlags->update();
+        $this->deleteFlags->update();
     }
 
     /**
@@ -712,13 +687,6 @@ class CacheManager
             sprintf('post:%d:%d', $blog_id, $post_id),
             sprintf('feed:%d', $blog_id),
         ), $expire);
-    }
-
-    /**
-     * Pre 4.7 add_action() compatibility.
-     */
-    public function AddActionCompat()
-    {
     }
 
     public function getRequestHash() :string

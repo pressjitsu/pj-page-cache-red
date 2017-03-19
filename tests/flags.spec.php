@@ -16,12 +16,12 @@ describe('Flags', function () {
         $expireFlag = new Flags('pjc-expired-flags', $redisClient);
         
         // flag: url:/about
-        $expireFlag->add('/about');
-        $expireFlag->add('/luca');
+        $expireFlag->add('url:/about');
+        $expireFlag->add('url:/luca');
         $expireFlag->update();
 
-        $expireds = $expireFlag->getFromWithScores(timestamp());
-        error_log(print_r($expireds, true), 4);
-
+        $expireds = $expireFlag->getFromWithScores(0);
+        
+        assert($expireds == ['url:/about' => time(), 'url:/luca' => time()], 'expired flags failed');
     });
 });
