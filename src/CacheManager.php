@@ -6,6 +6,8 @@ use RedisPageCache\Service\Compressable;
 use RedisPageCache\Service\WPCompat;
 use RedisPageCache\Redis\Flags;
 use RedisPageCache\Service\CacheServer;
+use RedisPageCache\Model\CachedPage;
+
 
 class CacheManager
 {
@@ -442,14 +444,10 @@ class CacheManager
     {
         $cache = true;
 
-        $data = array(
-            'output' => $output,
-            'headers' => array(),
-            'flags' => array(),
-            'status' => http_response_code(),
-            'gzip' => false,
-        );
-
+        $cachedPage = new CachedPage($output);
+        $cachedPage
+            ->setStatus(http_response_code());
+        
         // Don't cache 5xx errors.
         if ($data['status'] >= 500) {
             $cache = false;
@@ -461,7 +459,7 @@ class CacheManager
 
         // Compression.
         if ($this->gzip) {
-            $data['output'] = $this->compressor->compress($data['output']);
+            $cachedPage->setOutput($this->compressor->compress($data['output']));
             $data['gzip'] = true;
         }
 
