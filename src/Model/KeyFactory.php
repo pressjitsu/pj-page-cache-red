@@ -14,8 +14,8 @@ use RedisPageCache\Model\LockKey;
 
 class KeyFactory
 {
-    static $TYPE_DEFAULT = 0;
-    static $TYPE_LOCK = 1;
+    const TYPE_DEFAULT = 0;
+    const TYPE_LOCK = 1;
     
     static function getKey(int $type, Request $request): Keyable
     {
@@ -23,7 +23,7 @@ class KeyFactory
             case self::TYPE_DEFAULT:
                 $object = new DefaultKey($request);
                 break;
-            case self::$TYPE_LOCK:
+            case self::TYPE_LOCK:
                 $object = new LockKey($request);
                 break;
             default: 

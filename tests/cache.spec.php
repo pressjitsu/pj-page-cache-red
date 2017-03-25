@@ -25,16 +25,21 @@ describe('CacheManager', function () {
     });
 
     it('should return empty results when checks something missing from cache', function () {
+        $redisClient = ClientFactory::create([
+            'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
+            'timeout' => 2,
+        ]);
         // are there something in the cache?
-        $requestHash = array(
-            'request' => 'no-redis-cache-test.html' . md5(microtime(true)),
-            'host' => '',
-            'https' => '',
-            'method' => 'GET',
-            'unique' => [],
-            'cookies' => [],
+        $request = new \RedisPageCache\Model\Request(
+            'no-redis-cache-test.html' . md5(microtime(true)),
+            '',
+            '',
+            'GET',
+            [ 'test_cookie' => 'content of test cookie' ],
+            []
         );
-        $result = $this->cacheManager->checkRequestInCache($requestHash);
+        $cacheReader = new \RedisPageCache\Service\CacheReader($request, $redisClient);
+        $result = $cacheReader->checkRequest();
         assert($result === [ "cache" => null, "lock" => null ], 'Resulting array is not [ "cache" => null, "lock" => null ]');
     });
   

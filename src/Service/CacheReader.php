@@ -14,6 +14,8 @@ use RedisPageCache\Model\KeyFactory;
 
 class CacheReader
 {
+    private $debug = false;
+
     public function __construct(Request $request, $redisClient = \Redis)
     {
         $this->request = $request;
@@ -22,12 +24,15 @@ class CacheReader
             throw new \Exception('Redis has gone.');
         }
     }
+
     public function checkRequest()
     {
         // @TODO move this back to cache manager
+
         if ($this->debug) {
-            $this->debug_data = array('request_hash' => $this->request->getHash());
+            // $this->debug_data = array('request_hash' => $this->request->getHash());
         }
+
 
         if ($this->debug) {
             header('X-Pj-Cache-Key: ' . $this->request->getHash());
@@ -39,10 +44,13 @@ class CacheReader
         }
 
         // Look for an existing cache entry by request hash.
+        $defKey = KeyFactory::getKey(KeyFactory::TYPE_DEFAULT, $this->request);
+        $lockKey = KeyFactory::getKey(KeyFactory::TYPE_LOCK, $this->request);
+
         list($cache, $lock) = $redis->mGet(
             array(
-                KeyFactory::getKey(KeyFactory::$TYPE_DEFAULT, $this->request),
-                KeyFactory::getKey(KeyFactory::$TYPE_DEFAULT, $this->request)
+                $defKey->get(),
+                $lockKey->get(),
             )
         );
 
@@ -56,4 +64,25 @@ class CacheReader
     {
         return unserialize(base64_decode($data));
     }
+
+    /**
+     * @return bool
+     */
+    public function isDebug(): bool
+    {
+        return $this->debug;
+    }
+
+    /**
+     * @param bool $debug
+     * @return CacheReader
+     */
+    public function setDebug(bool $debug): CacheReader
+    {
+        $this->debug = $debug;
+
+        return $this;
+    }
+
+
 }

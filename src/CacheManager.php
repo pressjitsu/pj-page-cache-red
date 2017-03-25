@@ -63,9 +63,6 @@ class CacheManager
             ->addAction('transition_post_status', [$this, 'transition_post_status'], 10, 3)
             ->addAction('template_redirect', [$this, 'template_redirect'], 100);
 
-        // Parse configuration.
-        $this->maybe_user_config();
-
         // Make sure TEST_COOKIE is always set on a wp-login.php POST request
         $this->wp->setTestCookieOnLoginReq();
 
@@ -286,39 +283,9 @@ class CacheManager
     }
 
     /**
-     * Parse config from pj-user-config.php or $redis_page_cache_config global.
-     */
-    private function maybe_user_config()
-    {
-        global $redis_page_cache_config;
-        $pj_user_config = function_exists('pj_user_config') ? pj_user_config() : array();
-
-        $keys = array(
-            'redis_host',
-            'redis_port',
-            'redis_auth',
-            'redis_db',
-
-            'ttl',
-            'unique',
-            'ignore_cookies',
-            'ignore_request_keys',
-            'whitelist_cookies',
-            'bail_callback',
-            'debug',
-        );
-
-        foreach ($keys as $key) {
-            if (isset($pj_user_config['page_cache'][$key])) {
-                $this->key = $pj_user_config['page_cache'][$key];
-            } elseif (isset($redis_page_cache_config[$key])) {
-                $this->key = $redis_page_cache_config[$key];
-            }
-        }
-    }
-
-    /**
      * Runs when the output buffer stops.
+     * @param $output
+     * @return string
      */
     public function outputBuffer($output): string
     {
@@ -368,9 +335,6 @@ class CacheManager
 
         return $output;
     }
-
-
-
 
     /**
      * Essentially an md5 cache for domain.com/path?query used to

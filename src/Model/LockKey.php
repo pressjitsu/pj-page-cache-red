@@ -9,7 +9,7 @@
 namespace RedisPageCache\Model;
 
 
-class LockKey
+class LockKey implements Keyable
 {
 
     private $request;
