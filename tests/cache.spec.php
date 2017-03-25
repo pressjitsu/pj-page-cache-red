@@ -68,14 +68,25 @@ describe('CacheManager', function () {
     });
   
     it('should return results when checks something available in cache', function () {
-        $redis = $this->cacheManager->getRedisClient();
-        $redis->set("pjc-3e4c887c1c83086ac1766700ba0e2384", $this->cacheManager->safeSerialize(["content" => "result in redis"]));
+        $redis = $this->redisClient;
+        $request = new \RedisPageCache\Model\Request(
+            'nothing.html',
+            '',
+            '',
+            'GET'
+        );
+        $cachedPage = new \RedisPageCache\Model\CachedPage('result in redis', 200);
+        $cacheWriter = new \RedisPageCache\Service\CacheWriter($cachedPage, $request, $redis);
+        $cacheWriter->add();
 
-        $result = $this->cacheManager->checkRequestInCache(['request' => 'nothing.html']);
-    
+        $cacheReader = new \RedisPageCache\Service\CacheReader($request, $redis);
+        $result = $cacheReader->checkRequest();
+
         assert(is_array($result), "result is not an array");
         assert(array_key_exists("cache", $result), "result array doesn't have a cache key");
-        assert($result["cache"] === [ "content" => "result in redis" ], 'Result is not [ "cache" => ["content" => "result in redis"], "lock" => null ]');
+
+        $loadedCachedPage = $result["cache"];
+        assert($loadedCachedPage->getOutput() === $cachedPage->getOutput(), 'Result is not the same as cachedPage');
         assert($result["lock"] === null, '$result["lock"] !== null');
     });
 

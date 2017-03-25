@@ -18,6 +18,8 @@ class CacheWriter
     private $cachedPage;
     private $key;
     private $request;
+    private $safeSerialized;
+    private $ttl = 300;
 
     public function __construct(CachedPage $cachedPage, Request $request, $redisClient = \Redis)
     {
@@ -27,40 +29,56 @@ class CacheWriter
         if (!$this->redisClient) {
             throw new \Exception('Redis has gone.');
         }
-        $this->key = KeyFactory::getKey(KeyFactory::$TYPE_DEFAULT, $this->request);
+        $this->key = KeyFactory::getKey(KeyFactory::TYPE_DEFAULT, $this->request);
+        $this->safeSerialized = $this->safeSerialize();
     }
     
     public function add()
     {
         $this->redisClient->multi();
         // Okay to cache.
-        $this->redisSet($this->key, $this->safeSerialize($this->cachedPage));
+        error_log('serialized' . print_r($this->safeSerialized, true), 4);
+        $this->redisClient->set($this->key->get(), $this->safeSerialized, [$this->ttl]);
         $this->finalize();
     }
     
     public function remove()
     {
         $this->redisClient->multi();
-        $this->redisClient->del($this->key);
+        $this->redisClient->del($this->key->get());
         $this->finalize();
     }
     
     private function finalize()
     {
-        $this->redisClient->del(KeyFactory::getKey(KeyFactory::$TYPE_LOCK, $this->request));
+        $lockKey = KeyFactory::getKey(KeyFactory::TYPE_LOCK, $this->request);
+        $this->redisClient->del($lockKey->get());
         $this->redisClient->exec();
     }
 
-    public function safeSerialize($data)
+    public function safeSerialize()
     {
-        return base64_encode(serialize($data));
+        return base64_encode(serialize($this->cachedPage));
     }
 
-    private function redisSet(string $key, string $value, array $ttl = [])
+    /**
+     * @return string
+     */
+    public function getSafeSerialized(): string
     {
-        $redis = $this->redisClient;
-        error_log("redis set called, key: ".$key, 4);
-
-        return $redis->set($key, $value, count($ttl) > 0 ? $ttl : null);
+        return $this->safeSerialized;
     }
+
+    /**
+     * @param string $safeSerialized
+     * @return CacheWriter
+     */
+    public function setSafeSerialized(string $safeSerialized): CacheWriter
+    {
+        $this->safeSerialized = $safeSerialized;
+
+        return $this;
+    }
+
+
 }

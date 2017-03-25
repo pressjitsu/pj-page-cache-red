@@ -137,6 +137,7 @@ class CachedPage
         return $this;
     }
 
+    // This will used when serialized
     public function __sleep()
     {
         return [
