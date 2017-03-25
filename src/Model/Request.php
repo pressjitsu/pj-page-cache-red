@@ -20,8 +20,7 @@ class Request
     private $ignoreRequestKeys = array('utm_source', 'utm_medium', 'utm_term', 'utm_content', 'utm_campaign');
     private $ignoreCookies = array('wordpress_test_cookie');
 
-
-    public function __construct(string $requestURI = null, string $host = null, string $https = null, string $method, array $cookies = null)
+    public function __construct(string $requestURI = null, string $host = null, string $https = null, string $method = null, array $cookies = null)
     {
         if (null === $requestURI) {
             $this->uri = $_SERVER['REQUEST_URI'];

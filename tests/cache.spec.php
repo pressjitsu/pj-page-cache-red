@@ -11,6 +11,10 @@ use RedisClient\ClientFactory;
 describe('CacheManager', function () {
     beforeEach(function () {
         $this->cacheManager = CacheManagerFactory::getManager();
+        $this->redis =  $redisClient = ClientFactory::create([
+            'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
+            'timeout' => 2,
+        ]);
     });
 
     it('should accept redis client as dependency', function () {
@@ -44,8 +48,15 @@ describe('CacheManager', function () {
     });
   
     it('should generate a hash from request array', function () {
-        $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing.html']);
-        assert($hash === "3e4c887c1c83086ac1766700ba0e2384", "Hash is not match");
+        $request = new \RedisPageCache\Model\Request(
+            'nothing.html',
+            '',
+            '',
+            'GET'
+            );
+        $hash = $request->getHash();
+        var_dump($hash);
+        assert($hash === "510edce70c0a2c5127e339cec0c62346", "Hash is not match");
     });
 
     it('should create cache and lock keys from hash', function () {
