@@ -4,6 +4,7 @@ use RedisPageCache\CacheManager;
 use RedisPageCache\CacheManagerFactory;
 use RedisPageCache\Service\GzipCompressor;
 use RedisPageCache\Service\WPCompat;
+use RedisPageCache\Model\KeyFactory;
 
 
 use RedisClient\ClientFactory;
@@ -11,28 +12,20 @@ use RedisClient\ClientFactory;
 describe('CacheManager', function () {
     beforeEach(function () {
         $this->cacheManager = CacheManagerFactory::getManager();
-        $this->redis =  $redisClient = ClientFactory::create([
+        $this->redisClient =  $redisClient = ClientFactory::create([
             'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
             'timeout' => 2,
         ]);
     });
 
     it('should accept redis client as dependency', function () {
-        $redisClient = ClientFactory::create([
-        'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
-        'timeout' => 2,
-        ]);
-        $cacheManager = new CacheManager(new WPCompat, new GzipCompressor, $redisClient);
+        $cacheManager = new CacheManager(new WPCompat, new GzipCompressor, $this->redisClient);
         //
         assert(method_exists($cacheManager, 'getRedisClient'), 'no getRedisClient method exists');
-        assert($cacheManager->getRedisClient() === $redisClient, 'injected redis is not the same as it was');
+        assert($cacheManager->getRedisClient() === $this->redisClient, 'injected redis is not the same as it was');
     });
 
     it('should return empty results when checks something missing from cache', function () {
-        $redisClient = ClientFactory::create([
-            'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
-            'timeout' => 2,
-        ]);
         // are there something in the cache?
         $request = new \RedisPageCache\Model\Request(
             'no-redis-cache-test.html' . md5(microtime(true)),
@@ -42,7 +35,7 @@ describe('CacheManager', function () {
             [ 'test_cookie' => 'content of test cookie' ],
             []
         );
-        $cacheReader = new \RedisPageCache\Service\CacheReader($request, $redisClient);
+        $cacheReader = new \RedisPageCache\Service\CacheReader($request, $this->redisClient);
         $result = $cacheReader->checkRequest();
         assert($result === [ "cache" => null, "lock" => null ], 'Resulting array is not [ "cache" => null, "lock" => null ]');
     });
@@ -60,11 +53,18 @@ describe('CacheManager', function () {
     });
 
     it('should create cache and lock keys from hash', function () {
-        $result = $this->cacheManager->keyFromHash("3e4c887c1c83086ac1766700ba0e2384");
-        assert($result === "pjc-3e4c887c1c83086ac1766700ba0e2384", 'cache key generation failed');
-
-        $result = $this->cacheManager->keyFromHash("3e4c887c1c83086ac1766700ba0e2384", "lock");
-        assert($result === "pjc-3e4c887c1c83086ac1766700ba0e2384-lock", 'lock cache key generation failed');
+        $request = new \RedisPageCache\Model\Request(
+            'nothing.html',
+            '',
+            '',
+            'GET'
+        );
+        $defaultKey = KeyFactory::getKey(KeyFactory::TYPE_DEFAULT, $request);
+        $result = $defaultKey->get();
+        assert($result === "pjc-510edce70c0a2c5127e339cec0c62346", 'cache key generation failed');
+        $lockKey = KeyFactory::getKey(KeyFactory::TYPE_LOCK, $request);
+        $result = $lockKey->get();
+        assert($result === "pjc-lock-510edce70c0a2c5127e339cec0c62346", 'lock cache key generation failed');
     });
   
     it('should return results when checks something available in cache', function () {
