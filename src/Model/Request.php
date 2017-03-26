@@ -9,6 +9,8 @@
 namespace RedisPageCache\Model;
 
 
+use RedisPageCache\Service\WPCompat;
+
 class Request
 {
     private $uri;
@@ -19,9 +21,13 @@ class Request
     private $cookies;
     private $ignoreRequestKeys = array('utm_source', 'utm_medium', 'utm_term', 'utm_content', 'utm_campaign');
     const IGNORECOOKIES = array('wordpress_test_cookie');
+    private $whitelistCookies = null;
+    private $wp;
 
-    public function __construct(string $requestURI = null, string $host = null, string $https = null, string $method = null, array $cookies = null)
+    public function __construct(string $requestURI = null, string $host = null, string $https = null, string $method = null, array $cookies = null, WPCompat $wp = null)
     {
+        $this->clean();
+
         if (null === $requestURI) {
             $this->uri = $_SERVER['REQUEST_URI'];
         } else {
@@ -57,6 +63,12 @@ class Request
         // Make sure requests with Authorization: headers are unique.
         if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
             $$this->unique['pj-auth-header'] = $_SERVER['HTTP_AUTHORIZATION'];
+        }
+
+        if (null === $wp) {
+            $this->wp = new WPCompat();
+        } else {
+          $this->wp = $wp;
         }
     }
     
@@ -166,5 +178,49 @@ class Request
         return $this;
     }
 
+    // @TODO @important Ohh this is really ugly. Don't interfere with globals especially with query params
+    private function clean()
+    {
+        unset($_SERVER['HTTP_IF_NONE_MATCH']);
+        unset($_SERVER['HTTP_IF_MODIFIED_SINCE']);
+
+        // Remove ignored query vars.
+        if (!empty($_SERVER['QUERY_STRING'])) {
+            $_SERVER['QUERY_STRING'] = $this->removeQueryArgs($_SERVER['QUERY_STRING']);
+        }
+
+        if (!empty($_SERVER['REQUEST_URI']) && false !== strpos($_SERVER['REQUEST_URI'], '?')) {
+            $parts = explode('?', $_SERVER['REQUEST_URI'], 2);
+            $_SERVER['REQUEST_URI'] = $parts[0];
+            $query_string = $this->removeQueryArgs($parts[1]);
+            if (!empty($query_string)) {
+                $_SERVER['REQUEST_URI'] .= '?'.$query_string;
+            }
+        }
+
+        foreach ($this->ignoreRequestKeys as $key) {
+            unset($_GET[$key]);
+            unset($_REQUEST[$key]);
+        }
+
+        // If we have a whitelist set, clear out everything that does not
+        // match the list, unless we're in the wp-admin (but not in admin-ajax.php).
+        if (!empty($this->whitelistCookies) && (!$this->wp->isAdmin() || $this->wp->isAdminAjax())) {
+            foreach ($_COOKIE as $key => $value) {
+                $whitelist = false;
+
+                foreach ($this->whitelistCookies as $part) {
+                    if (strpos($key, $part) === 0) {
+                        $whitelist = true;
+                        break;
+                    }
+                }
+
+                if (!$whitelist) {
+                    unset($_COOKIE[$key]);
+                }
+            }
+        }
+    }
 
 }

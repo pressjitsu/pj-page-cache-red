@@ -2,7 +2,6 @@
 
 namespace RedisPageCache;
 
-use RedisPageCache\Model\KeyFactory;
 use RedisPageCache\Model\Request;
 use RedisPageCache\Service\CacheReader;
 use RedisPageCache\Service\CacheWriter;
@@ -21,11 +20,11 @@ class CacheManager
 
     private $compressor;
 
-    private $ttl = 3;
+    private $ttl = 300;
 
-    private $whitelist_cookies = null;
+
     private $bail_callback = false;
-    private $debug = false;
+    private $debug = true;
     private $gzip = false;
 
     private $request;
@@ -92,13 +91,13 @@ class CacheManager
         $cache = $results['cache'];
         $lock = $results['lock'];
 
-        error_log(print_r($cache, true), 4);
+        error_log('found in cache: ' . print_r($cache, true), 4);
 
         $cacheStatus = is_array($cache) ? 'cached' : 'miss';
 
         header('X-Pj-Cache-Status: '.$cacheStatus);
         // Something is in cache.
-        $this->responseFromCache($cache ?: [], $lock);
+        $this->responseFromCache($cache ?: null, $lock);
 
         // Cache it, smash it.
         ob_start(array($this, 'outputBuffer'));
@@ -110,28 +109,28 @@ class CacheManager
         $this->request = $request;
     }
 
-    private function responseFromCache(array $cache, $lock)
+    private function responseFromCache(CachedPage $cache = null, $lock)
     {
-        if (empty($cache)) {
+        if (null === $cache) {
             return;
         }
 
         // error_log('van cache', 4);
         if ($this->debug) {
-            header('X-Pj-Cache-Time: '.$cache['updated']);
-            header('X-Pj-Cache-Flags: '.implode(' ', $cache['flags']));
+            header('X-Pj-Cache-Time: '.$cache->getUpdated());
+            header('X-Pj-Cache-Flags: '.implode(' ', $cache->getFlags()));
         }
 
-        $this->expireFlags->getFromWithScores($cache['updated'] + $this->ttl);
-        $this->deleteFlags->getFromWithScores($cache['updated']);
+        $this->expireFlags->getFromWithScores($cache->getUpdated() + $this->ttl);
+        $this->deleteFlags->getFromWithScores($cache->getUpdated());
 
         $serve_cache = true;
 
         // flags are saved as ordered set and beside the actual page data
         // expiration has the url and a timestamp of expiration in the ordered set
         // this way if the url is in the expiration 
-        $expired = $this->expireFlags->includes($cache['flags']);
-        $deleted = $this->deleteFlags->includes($cache['flags']);
+        $expired = $this->expireFlags->includes($cache->getFlags());
+        $deleted = $this->deleteFlags->includes($cache->getFlags());
 
         // Cache is outdated or set to expire.
         if ($expired && !$deleted) {
@@ -152,14 +151,14 @@ class CacheManager
             }
         }
 
-        if (!$deleted && $cache['gzip']) {
+        if (!$deleted && $cache->isGzip()) {
             error_log('!deleted and gzipped');
-            if ($this->gzip) {
+            if ($cache->isGzip()) {
                 if ($this->debug) {
                     header('X-Pj-Cache-Gzip: true');
                 }
 
-                $cache['output'] = $this->compressor->deCompress($cache['output']);
+                 $cache->setOutput($this->compressor->deCompress($cache->getOutput()));
             } else {
                 $serve_cache = false;
             }
@@ -171,7 +170,7 @@ class CacheManager
             $status = ($this->fcgi_regenerate) ? 'expired' : 'hit';
             header('X-Pj-Cache-Status: '.$status);
             if ($this->debug) {
-                header(sprintf('X-Pj-Cache-Expires: %d', $this->ttl - (time() - $cache['updated'])));
+                header(sprintf('X-Pj-Cache-Expires: %d', $this->ttl - (time() - $cache->getUpdated())));
             }
             // Actually send headers and echo content
 
@@ -180,6 +179,7 @@ class CacheManager
 
             // If we can regenerate in the background, do it.
             if ($this->fcgi_regenerate) {
+                error_log('fcgi generate in the background');
                 fastcgi_finish_request();
                 pj_sapi_headers_clean();
             } else {
@@ -194,7 +194,9 @@ class CacheManager
      */
     private function can_fcgi_regenerate()
     {
-        return (php_sapi_name() == 'fpm-fcgi' && function_exists('fastcgi_finish_request') && function_exists(
+        error_log('php_sapi_name ' . php_sapi_name() );
+        $envs = ['fpm-fcgi', 'cli'];
+        return (in_array(php_sapi_name(), $envs) && function_exists('fastcgi_finish_request') && function_exists(
                 'pj_sapi_headers_clean'
             ));
     }
@@ -205,46 +207,7 @@ class CacheManager
     private function clean_request()
     {
         // Strip ETag and If-Modified-Since headers.
-        unset($_SERVER['HTTP_IF_NONE_MATCH']);
-        unset($_SERVER['HTTP_IF_MODIFIED_SINCE']);
 
-        // Remove ignored query vars.
-        if (!empty($_SERVER['QUERY_STRING'])) {
-            $_SERVER['QUERY_STRING'] = $this->remove_query_args($_SERVER['QUERY_STRING'], $this->ignore_request_keys);
-        }
-
-        if (!empty($_SERVER['REQUEST_URI']) && false !== strpos($_SERVER['REQUEST_URI'], '?')) {
-            $parts = explode('?', $_SERVER['REQUEST_URI'], 2);
-            $_SERVER['REQUEST_URI'] = $parts[0];
-            $query_string = $this->remove_query_args($parts[1], $this->ignore_request_keys);
-            if (!empty($query_string)) {
-                $_SERVER['REQUEST_URI'] .= '?'.$query_string;
-            }
-        }
-
-        foreach ($this->ignore_request_keys as $key) {
-            unset($_GET[$key]);
-            unset($_REQUEST[$key]);
-        }
-
-        // If we have a whitelist set, clear out everything that does not
-        // match the list, unless we're in the wp-admin (but not in admin-ajax.php).
-        if (!empty($this->whitelist_cookies) && (!$this->wp->isAdmin() || $this->wp->isAdminAjax())) {
-            foreach ($_COOKIE as $key => $value) {
-                $whitelist = false;
-
-                foreach ($this->whitelist_cookies as $part) {
-                    if (strpos($key, $part) === 0) {
-                        $whitelist = true;
-                        break;
-                    }
-                }
-
-                if (!$whitelist) {
-                    unset($_COOKIE[$key]);
-                }
-            }
-        }
     }
 
     /**
@@ -296,7 +259,7 @@ class CacheManager
      */
     public function outputBuffer($output): string
     {
-        error_log('request ' . print_r($this->request, true), 4);
+        error_log('request in output buffer: ' . print_r($this->request, true), 4);
         $responseCode = http_response_code();
         // Don't cache 5xx errors.
         if ($responseCode >= 500) {
@@ -327,7 +290,7 @@ class CacheManager
 
         /** @var TYPE_NAME $cachedPage */
         $cacheWriter = new CacheWriter($cachedPage, $this->request, $this->redisClient);
-        error_log('cached page ' . print_r($cachedPage, true), 4);
+        //error_log('cached page ' . print_r($cachedPage, true), 4);
         // Ignore requests with cookie = don't cache
         if (in_array(Request::IGNORECOOKIES, $cookies)) {
             error_log('remove from cache: ' . $cacheWriter->getKey()->get(), 4);
@@ -339,11 +302,11 @@ class CacheManager
             $cachedPage->setDebugData($this->debug_data);
         }
 
-        if ($this->fcgi_regenerate) {
-
+        if (!$this->fcgi_regenerate) {
+            error_log('added to cache (no fcgi_regenerate): ' . $cacheWriter->getKey()->get(), 4);
             $cacheWriter->add();
         }
-        error_log('not added to cache: ' . $cacheWriter->getKey()->get(), 4);
+        error_log('output buffer ran, key: ' . $cacheWriter->getKey()->get(), 4);
         return $output;
     }
 

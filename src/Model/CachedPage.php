@@ -5,7 +5,7 @@ namespace RedisPageCache\Model;
 class CachedPage
 {
     private $output;
-    private $headers;
+    private $headers = [];
     private $flags;
     private $status;
     private $gzip = false;
@@ -96,7 +96,7 @@ class CachedPage
 
     public function isGzip(): bool
     {
-        return $this->getGzip();
+        return $this->gzip;
     }
 
     /**
