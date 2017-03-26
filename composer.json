@@ -8,7 +8,8 @@
         "cheprasov/php-redis-client": "^1.6"
     },
     "require-dev": {
-        "peridot-php/peridot": "^1.19"
+        "peridot-php/peridot": "^1.19",
+        "peridot-php/peridot-prophecy-plugin": "~1.0"
     },
     "license": "MIT",
     "minimum-stability": "dev",
