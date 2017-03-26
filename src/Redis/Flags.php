@@ -21,14 +21,14 @@ class Flags
         error_log(print_r($from, true), 4);
         $this->flagsFrom = $this->redisClient->zRangeByScore($this->key, $from, '+inf', array( 'withscores' => true ));
 
-        error_log(print_r($this->flagsFrom, true), 4);
+        //error_log(print_r($this->flagsFrom, true), 4);
         
         return $this->flagsFrom;
     }
 
     public function update()
     {
-        error_log('update flags');
+        // error_log('update flags');
         if (empty($this->contents)) {
             error_log('no flags');
             return;

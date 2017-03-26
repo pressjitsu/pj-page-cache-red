@@ -25,7 +25,7 @@ class CacheManager
 
     private $bail_callback = false;
     private $debug = true;
-    private $gzip = false;
+    private $gzip = true;
 
     private $request;
     private $debug_data = false;
@@ -44,6 +44,9 @@ class CacheManager
         $this->compressor = $compressor;
         $this->expireFlags = new Flags('pjc-expired-flags', $this->redisClient);
         $this->deleteFlags = new Flags('pjc-deleted-flags', $this->redisClient);
+        $this->disable = $wp->isDisabled();
+        $this->debug = $wp->isDebugMode();
+        $this->ttl = $wp->isTtlSet() ? $wp->getTtl() : $this->ttl;
     }
 
     public function getRedisClient()
@@ -79,9 +82,6 @@ class CacheManager
             return;
         }
 
-        // Clean up request variables.
-        $this->clean_request();
-
         // are there something in the cache?
         $request = new Request(
             $_SERVER['REQUEST_URI'],
@@ -97,7 +97,6 @@ class CacheManager
         $lock = $results['lock'];
 
         //error_log('found in cache: ' . print_r($cache, true), 4);
-        error_log('found in cache', 4);
         $cacheStatus = is_array($cache) ? 'cached' : 'miss';
 
         header('X-Pj-Cache-Status: '.$cacheStatus);
@@ -142,7 +141,7 @@ class CacheManager
             error_log('expired !deleted');
             // If it's not locked, lock it for regeneration and don't serve from cache.
             if (!$lock) {
-                $lock = $this->redisSet(sprintf('pjc-%s-lock', $this->request_hash), true, array('nx', 'ex' => 30));
+                $lock = $this->redisSet(sprintf('pjc-%s-lock', $this->request->getHash()), true, array('nx', 'ex' => 30));
                 if ($lock) {
                     if ($this->can_fcgi_regenerate()) {
                         // Well, actually, if we can serve a stale copy but keep the process running
@@ -199,20 +198,10 @@ class CacheManager
      */
     private function can_fcgi_regenerate()
     {
-        error_log('php_sapi_name ' . php_sapi_name() );
         $envs = ['fpm-fcgi', 'cli'];
         return (in_array(php_sapi_name(), $envs) && function_exists('fastcgi_finish_request') && function_exists(
                 'pj_sapi_headers_clean'
             ));
-    }
-
-    /**
-     * Clean up the current request variables.
-     */
-    private function clean_request()
-    {
-        // Strip ETag and If-Modified-Since headers.
-
     }
 
     /**
@@ -231,7 +220,7 @@ class CacheManager
 
         // Don't cache CLI requests
         if (php_sapi_name() == 'cli') {
-            return true;
+            // return true;
         }
 
         // Don't cache POST requests.
@@ -248,7 +237,7 @@ class CacheManager
 
             // Don't cache anything if these cookies are set.
             foreach (array('wp', 'wordpress', 'comment_author') as $part) {
-                if (strpos($key, $part) === 0 && !in_array($key, $this->ignore_cookies)) {
+                if (strpos($key, $part) === 0 && !in_array($key, Request::IGNORECOOKIES)) {
                     return true;
                 }
             }
@@ -439,18 +428,6 @@ class CacheManager
             ),
             $expire
         );
-    }
-
-    public function getRequestHash() :string
-    {
-        return $this->request_hash;
-    }
-
-    public function setRequestHash(string $hash) :CacheManager
-    {
-        $this->request_hash = $hash;
-
-        return $this;
     }
 
     /**

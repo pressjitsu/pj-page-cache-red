@@ -4,6 +4,50 @@ namespace RedisPageCache\Service;
 
 class WPCompat
 {
+
+    public function isDisabled(): bool
+    {
+        // Disable from WP config
+        if (defined('REDIS_CACHE')) {
+            if (REDIS_CACHE !== true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function isDebugMode(): bool
+    {
+        // Enable debugging from wp config
+        if (defined('WP_DEBUG')) {
+            return WP_DEBUG;
+        }
+
+        return false;
+    }
+
+    public function isTtlSet(): bool
+    {
+        if (defined('REDIS_CACHE_TTL')) {
+            return true;
+        }
+
+        return false;
+    }
+    /**
+     * @return int
+     */
+    public function getTtl(): int
+    {
+        if ($this->isTtlSet()) {
+            return REDIS_CACHE_TTL;
+        }
+
+        return 300;
+    }
+
+
     public function isAdmin()
     {
         return defined('WP_ADMIN') && WP_ADMIN;
