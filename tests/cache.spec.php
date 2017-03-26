@@ -124,22 +124,33 @@ describe('CacheManager', function () {
         assert($compressor->deCompress($results['cache']->getOutput()) === "example content", '$result::output is not "result in redis"');
     });
      it('should add example content to the redis cache without gzip', function () {
-        $this->cacheManager->setGzip(false);
-        
-        $key = "pjc-5bcc4473510ee608f6d3395d47f067b8";
-        // remove if exists
-        $redis = $this->cacheManager->getRedisClient();
-        $redis->del($key);
-        $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing2.html']);
-        $this->cacheManager->setRequestHash($hash); // temporary
-        $this->cacheManager->outputBuffer("example content");
-        
-        $redis = $this->cacheManager->getRedisClient();
-        $rawResult = $redis->get($key);
-        $result = $this->cacheManager->safeDeSerialize($rawResult);
-        assert(is_array($result), "result is not an array");
-        assert(array_key_exists("output", $result), "result array doesn't have an 'output' key");
-        
-        assert($result["output"] === "example content", '$result["output"] is not "example content"');
+         $redis = $this->redisClient;
+
+         $request = new \RedisPageCache\Model\Request(
+             'example.com/page/nothing.html',
+             '',
+             '',
+             'GET'
+         );
+         // We need a brand new manager
+         $this->cacheManager = CacheManagerFactory::getManager();
+         $this->cacheManager->setRequest($request);
+         $defaultKey = KeyFactory::getKey(KeyFactory::TYPE_DEFAULT, $request);
+         $key = $defaultKey->get();
+         // remove from Redis if exists
+         $redis->del($key);
+         $this->cacheManager->setFcgiRegenerate(true);
+         $this->cacheManager->outputBuffer("example content");
+
+         $rawResult = $redis->get($key);
+         var_dump('rawResult for key: ' . $key, $rawResult);
+         assert($rawResult !== null, 'Raw result is null, probably not saved');
+
+         $cacheReader = new \RedisPageCache\Service\CacheReader($request, $redis);
+         $results = $cacheReader->checkRequest();
+         assert(is_array($results), "result is not an array");
+         assert(property_exists($results['cache'], 'output'), "result doesn't have an 'output' property");
+
+         assert($results['cache']->getOutput() === "example content", '$result::output is not "result in redis"');
      });
 });
