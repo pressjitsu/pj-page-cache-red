@@ -164,7 +164,17 @@ describe('CacheManager', function () {
          $this->cacheManager->setFcgiRegenerate(false);
          $this->cacheManager->setGzip(false);
          $this->cacheManager->outputBuffer("example content");
+         if ($this->mocking) {
+             $cachedPage = new \RedisPageCache\Model\CachedPage("example content", 200);
 
+             $this->redisMock
+                 ->mget(Argument::exact(['pjc-5f585198c58fc8678f1d2f9f5c48ff08', 'pjc-lock-5f585198c58fc8678f1d2f9f5c48ff08']))
+                 ->willReturn([(base64_encode(serialize($cachedPage))), false]);
+
+             $this->redisMock
+                 ->get($key)
+                 ->willReturn(base64_encode(serialize($cachedPage)));
+         }
          $rawResult = $redis->get($key);
          assert($rawResult !== null, 'Raw result is null, probably not saved');
 
