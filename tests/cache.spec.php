@@ -32,8 +32,7 @@ describe('CacheManager', function () {
             '',
             '',
             'GET',
-            [ 'test_cookie' => 'content of test cookie' ],
-            []
+            [ 'test_cookie' => 'content of test cookie' ]
         );
         $cacheReader = new \RedisPageCache\Service\CacheReader($request, $this->redisClient);
         $result = $cacheReader->checkRequest();
@@ -108,11 +107,10 @@ describe('CacheManager', function () {
         $key = $defaultKey->get();
         // remove from Redis if exists
         $redis->del($key);
-        $this->cacheManager->setFcgiRegenerate(true);
+        $this->cacheManager->setFcgiRegenerate(false);
         $this->cacheManager->outputBuffer("example content");
   
         $rawResult = $redis->get($key);
-        var_dump('rawResult for key: ' . $key, $rawResult);
         assert($rawResult !== null, 'Raw result is null, probably not saved');
 
         $cacheReader = new \RedisPageCache\Service\CacheReader($request, $redis);
@@ -139,11 +137,11 @@ describe('CacheManager', function () {
          $key = $defaultKey->get();
          // remove from Redis if exists
          $redis->del($key);
-         $this->cacheManager->setFcgiRegenerate(true);
+         $this->cacheManager->setFcgiRegenerate(false);
+         $this->cacheManager->setGzip(false);
          $this->cacheManager->outputBuffer("example content");
 
          $rawResult = $redis->get($key);
-         var_dump('rawResult for key: ' . $key, $rawResult);
          assert($rawResult !== null, 'Raw result is null, probably not saved');
 
          $cacheReader = new \RedisPageCache\Service\CacheReader($request, $redis);
@@ -151,6 +149,6 @@ describe('CacheManager', function () {
          assert(is_array($results), "result is not an array");
          assert(property_exists($results['cache'], 'output'), "result doesn't have an 'output' property");
 
-         assert($results['cache']->getOutput() === "example content", '$result::output is not "result in redis"');
+         assert($results['cache']->getOutput() === "example content", '$result::output is not "example content"');
      });
 });
