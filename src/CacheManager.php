@@ -35,6 +35,8 @@ class CacheManager
     private $expireFlags;
     private $deleteFlags;
 
+    private $disable = false;
+
     public function __construct(WPCompat $wp, Compressable $compressor, $redisClient = \Redis)
     {
         $this->wp = $wp;
@@ -54,6 +56,9 @@ class CacheManager
      */
     public function cacheInit()
     {
+        if ($this->disable) {
+            return;
+        }
         // Clear caches in bulk at the end.
         register_shutdown_function(array($this, 'maybe_clear_caches'));
 
@@ -91,8 +96,8 @@ class CacheManager
         $cache = $results['cache'];
         $lock = $results['lock'];
 
-        error_log('found in cache: ' . print_r($cache, true), 4);
-
+        //error_log('found in cache: ' . print_r($cache, true), 4);
+        error_log('found in cache', 4);
         $cacheStatus = is_array($cache) ? 'cached' : 'miss';
 
         header('X-Pj-Cache-Status: '.$cacheStatus);
