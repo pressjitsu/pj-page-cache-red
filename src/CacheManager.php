@@ -2,49 +2,51 @@
 
 namespace RedisPageCache;
 
-/**
- * Redis Cache Dropin for WordPress
- *
- * Create a symbolic link to this file from your wp-content directory and
- * enable page caching in your wp-config.php.
- */
+use RedisPageCache\Model\Request;
+use RedisPageCache\Service\CacheReader;
+use RedisPageCache\Service\CacheWriter;
+use RedisPageCache\Service\Compressable;
+use RedisPageCache\Service\HeaderParser;
+use RedisPageCache\Service\WPCompat;
+use RedisPageCache\Redis\Flags;
+use RedisPageCache\Service\CacheServer;
+use RedisPageCache\Model\CachedPage;
 
 
 class CacheManager
 {
+    private $wp;
     private $redisClient;
 
-    private $redis;
-    private $redis_host = '127.0.0.1';
-    private $redis_port = 6379;
-    private $redis_db = 0;
-    private $redis_auth = '';
+    private $compressor;
 
     private $ttl = 300;
-    private $max_ttl = 3600;
-    private $unique = array();
-    private $headers = array();
-    private $ignore_cookies = array( 'wordpress_test_cookie' );
-    private $ignore_request_keys = array( 'utm_source', 'utm_medium', 'utm_term', 'utm_content', 'utm_campaign' );
-    private $whitelist_cookies = null;
-    private $bail_callback = false;
-    private $debug = false;
-    private $gzip = false;
 
-    private $lock = false;
-    private $cache = false;
-    private $request_hash = '';
+
+    private $bail_callback = false;
+    private $debug = true;
+    private $gzip = true;
+
+    private $request;
     private $debug_data = false;
     private $fcgi_regenerate = false;
 
     // Flag requests and expire/delete them efficiently.
-    private $flags = array();
-    private $flags_expire = array();
-    private $flags_delete = array();
-    
-    public function __construct($redisClient = \Redis)
+    private $expireFlags;
+    private $deleteFlags;
+
+    private $disable = false;
+
+    public function __construct(WPCompat $wp, Compressable $compressor, $redisClient = \Redis)
     {
+        $this->wp = $wp;
         $this->redisClient = $redisClient;
+        $this->compressor = $compressor;
+        $this->expireFlags = new Flags('pjc-expired-flags', $this->redisClient);
+        $this->deleteFlags = new Flags('pjc-deleted-flags', $this->redisClient);
+        $this->disable = $wp->isDisabled();
+        $this->debug = $wp->isDebugMode();
+        $this->ttl = $wp->isTtlSet() ? $wp->getTtl() : $this->ttl;
     }
 
     public function getRedisClient()
@@ -55,212 +57,140 @@ class CacheManager
     /**
      * Runs during advanced-cache.php
      */
-    public function cache_init()
+    public function cacheInit()
     {
-        // Clear caches in bulk at the end.
-        register_shutdown_function(array( $this, 'maybe_clear_caches' ));
-
-        header('X-Pj-Cache-Status: miss');
-
-        if (function_exists('add_action')) {
-            add_action('clean_post_cache', array( $this, 'clean_post_cache' ));
-            add_action('transition_post_status', array( $this, 'transition_post_status' ), 10, 3);
-            add_action('template_redirect', array( $this, 'template_redirect' ), 100);
-        } else {
-            $this->_add_action_compat();
+        if ($this->disable) {
+            return;
         }
+        // Clear caches in bulk at the end.
+        register_shutdown_function(array($this, 'maybe_clear_caches'));
 
-        // Parse configuration.
-        $this->maybe_user_config();
+        $this->wp
+            ->addAction('clean_post_cache', [$this, 'clean_post_cache'])
+            ->addAction('transition_post_status', [$this, 'transition_post_status'], 10, 3)
+            ->addAction('template_redirect', [$this, 'template_redirect'], 100);
 
         // Make sure TEST_COOKIE is always set on a wp-login.php POST request
-        if (strpos($_SERVER['REQUEST_URI'], '/wp-login.php') === 0 && strtoupper($_SERVER['REQUEST_METHOD']) == 'POST') {
-            $_COOKIE['wordpress_test_cookie'] = 'WP Cookie check';
-        }
+        $this->wp->setTestCookieOnLoginReq();
 
         // Some things just don't need to be cached.
         if ($this->maybe_bail()) {
             if ($this->debug) {
                 header('X-Pj-Cache-Bail: bail');
             }
+
             return;
         }
 
-        // Clean up request variables.
-        $this->clean_request();
-
         // are there something in the cache?
-        $requestHash = array(
-            'request' => $this->parse_request_uri($_SERVER['REQUEST_URI']),
-            'host' => ! empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '',
-            'https' => ! empty($_SERVER['HTTPS']) ? $_SERVER['HTTPS'] : '',
-            'method' => $_SERVER['REQUEST_METHOD'],
-            'unique' => $this->unique,
-            'cookies' => $this->parse_cookies($_COOKIE),
+        $request = new Request(
+            $_SERVER['REQUEST_URI'],
+            $_SERVER['HTTP_HOST'],
+            $_SERVER['HTTPS'],
+            $_SERVER['REQUEST_METHOD'],
+            $_COOKIE
         );
-        $results = $this->checkRequestInCache($requestHash);
+        $this->setRequest($request);
+        $cacheReader = new CacheReader($this->request, $this->redisClient);
+        $results = $cacheReader->checkRequest();
         $cache = $results['cache'];
-        $lock =  $results['lock'];
-        // error_log(print_r($cache['updated'], true), 4);
-        $redis = $this->getRedisClient();
+        $lock = $results['lock'];
 
+        //error_log('found in cache: ' . print_r($cache, true), 4);
+        $cacheStatus = is_array($cache) ? 'cached' : 'miss';
+
+        header('X-Pj-Cache-Status: '.$cacheStatus);
         // Something is in cache.
-        if (is_array($cache) && ! empty($cache)) {
-            $serve_cache = true;
-            // error_log('van cache', 4);
-            if ($this->debug) {
-                header('X-Pj-Cache-Time: ' . $cache['updated']);
-                header('X-Pj-Cache-Flags: ' . implode(' ', $cache['flags']));
-            }
-
-            $redis->multi();
-            $redis->zRangeByScore('pjc-expired-flags', $cache['updated'], '+inf', array( 'withscores' => true ));
-            $redis->zRangeByScore('pjc-deleted-flags', $cache['updated'], '+inf', array( 'withscores' => true ));
-            list($expired_flags, $deleted_flags) = $redis->exec();
-
-            $expired = $cache['updated'] + $this->ttl < time();
-            $deleted = false;
-
-            if (! empty($cache['flags'])) {
-                // Check whether any flags have been deleted.
-                if (! empty($deleted_flags) &&
-                    count(array_intersect($cache['flags'], array_keys($deleted_flags))) > 0) {
-                    $deleted = true;
-                    $serve_cache = false;
-                }
-
-                // Check whether any flags have been expired.
-                if (! $expired && ! $deleted && ! empty($expired_flags) &&
-                    count(array_intersect($cache['flags'], array_keys($expired_flags))) > 0) {
-                    $expired = true;
-                }
-            }
-
-            // This entry is very old, consider it deleted.
-            if ($serve_cache && $cache['updated'] + $this->max_ttl < time()) {
-                $serve_cache = false;
-                $deleted = true;
-            }
-
-            // Cache is outdated or set to expire.
-            if ($expired && $serve_cache) {
-                // If it's not locked, lock it for regeneration and don't serve from cache.
-                if (! $lock) {
-                    $lock = $this->redisSet(sprintf('pjc-%s-lock', $this->request_hash), true, array( 'nx', 'ex' => 30 ));
-                    if ($lock) {
-                        if ($this->can_fcgi_regenerate()) {
-                            // Well, actually, if we can serve a stale copy but keep the process running
-                            // to regenerate the cache in background without affecting the UX, that will be great!
-                            $serve_cache = true;
-                            $this->fcgi_regenerate = true;
-                        } else {
-                            $serve_cache = false;
-                        }
-                    }
-                }
-            }
-
-            if ($serve_cache && $cache['gzip']) {
-                if (function_exists('gzuncompress') && $this->gzip) {
-                    if ($this->debug) {
-                        header('X-Pj-Cache-Gzip: true');
-                    }
-
-                    $cache['output'] = gzuncompress($cache['output']);
-                } else {
-                    $serve_cache = false;
-                }
-            }
-
-            if ($serve_cache) {
-                // If we're regenareting in background, let everyone know.
-                $status = ($this->fcgi_regenerate) ? 'expired' : 'hit';
-                header('X-Pj-Cache-Status: ' . $status);
-
-                if ($this->debug) {
-                    header(sprintf('X-Pj-Cache-Expires: %d', $this->ttl - (time() - $cache['updated'])));
-                }
-
-                // Output cached status code.
-                if (! empty($cache['status'])) {
-                    http_response_code($cache['status']);
-                }
-
-                // Output cached headers.
-                if (is_array($cache['headers']) && ! empty($cache['headers'])) {
-                    foreach ($cache['headers'] as $header) {
-                        header($header);
-                    }
-                }
-
-                echo $cache['output'];
-
-                // If we can regenerate in the background, do it.
-                if ($this->fcgi_regenerate) {
-                    fastcgi_finish_request();
-                    pj_sapi_headers_clean();
-                } else {
-                    exit;
-                }
-            }
-        }
+        $this->responseFromCache($cache ?: null, $lock);
 
         // Cache it, smash it.
-        ob_start(array( $this, 'output_buffer' ));
+        ob_start(array($this, 'outputBuffer'));
     }
 
-    private function redisSet(string $key, string $value, array $ttl = []) {
-        $redis = $this->getRedisClient();
-        error_log("redis set called, key: " . $key, 4);
-        return $redis->set($key, $value, count($ttl) > 0 ? $ttl : null);
-    }
-    public function checkRequestInCache($request_hash)
+    // This is important for tests, please keep it
+    public function setRequest(Request $request)
     {
-        // Make sure requests with Authorization: headers are unique.
-        if (! empty($_SERVER['HTTP_AUTHORIZATION'])) {
-            $request_hash['unique']['pj-auth-header'] = $_SERVER['HTTP_AUTHORIZATION'];
+        $this->request = $request;
+    }
+
+    private function responseFromCache(CachedPage $cache = null, $lock)
+    {
+        if (null === $cache) {
+            return;
         }
 
+        // error_log('van cache', 4);
         if ($this->debug) {
-            $this->debug_data = array( 'request_hash' => $request_hash );
+            header('X-Pj-Cache-Time: '.$cache->getUpdated());
+            header('X-Pj-Cache-Flags: '.implode(' ', $cache->getFlags()));
         }
 
-        // Convert to an actual hash.
-        $this->request_hash = $this->generateHashFomRequestParams($request_hash);
+        $this->expireFlags->getFromWithScores($cache->getUpdated() + $this->ttl);
+        $this->deleteFlags->getFromWithScores($cache->getUpdated());
 
-        if ($this->debug) {
-            header('X-Pj-Cache-Key: ' . $this->request_hash);
+        $serve_cache = true;
+
+        // flags are saved as ordered set and beside the actual page data
+        // expiration has the url and a timestamp of expiration in the ordered set
+        // this way if the url is in the expiration 
+        $expired = $this->expireFlags->includes($cache->getFlags());
+        $deleted = $this->deleteFlags->includes($cache->getFlags());
+
+        // Cache is outdated or set to expire.
+        if ($expired && !$deleted) {
+            error_log('expired !deleted');
+            // If it's not locked, lock it for regeneration and don't serve from cache.
+            if (!$lock) {
+                $lock = $this->redisSet(sprintf('pjc-%s-lock', $this->request->getHash()), true, array('nx', 'ex' => 30));
+                if ($lock) {
+                    if ($this->can_fcgi_regenerate()) {
+                        // Well, actually, if we can serve a stale copy but keep the process running
+                        // to regenerate the cache in background without affecting the UX, that will be great!
+                        $serve_cache = true;
+                        $this->fcgi_regenerate = true;
+                    } else {
+                        $serve_cache = false;
+                    }
+                }
+            }
         }
 
-        $redis = $this->getRedisClient();
-        if (! $redis) {
-            throw new \Exception('Redis client is null (is it running? is the config OK?)');
+        if (!$deleted && $cache->isGzip()) {
+            error_log('!deleted and gzipped');
+            if ($cache->isGzip()) {
+                if ($this->debug) {
+                    header('X-Pj-Cache-Gzip: true');
+                }
+
+                 $cache->setOutput($this->compressor->deCompress($cache->getOutput()));
+            } else {
+                $serve_cache = false;
+            }
         }
+        error_log('servce cache? '.$serve_cache);
+        // serve the cached page
+        if ($serve_cache) {
+            // If we're regenareting in background, let everyone know.
+            $status = ($this->fcgi_regenerate) ? 'expired' : 'hit';
+            header('X-Pj-Cache-Status: '.$status);
+            if ($this->debug) {
+                header(sprintf('X-Pj-Cache-Expires: %d', $this->ttl - (time() - $cache->getUpdated())));
+            }
+            // Actually send headers and echo content
 
-        // Look for an existing cache entry by request hash.
-        list($cache, $lock) = $redis->mGet(array(
-            $this->keyFromHash($this->request_hash),
-            $this->keyFromHash($this->request_hash, 'lock'),
-        ));
+            $cachedResponse = new CacheServer($cache);
+            $cachedResponse();
 
-        return [
-            'cache' => $cache ? $this->safeDeSerialize($cache) : null,
-            'lock' => $lock ? $this->safeDeSerialize($lock) : null
-            ];
-    }
-
-    public function generateHashFomRequestParams(array $requestParams) :string
-    {
-        return md5(serialize($requestParams));
-    }
-
-    public function keyFromHash(string $hash, string $type = 'cache') :string
-    {
-        if ($type === 'cache') {
-            return sprintf('pjc-%s', $hash);
+            // If we can regenerate in the background, do it.
+            if ($this->fcgi_regenerate) {
+                error_log('fcgi generate in the background');
+                fastcgi_finish_request();
+                pj_sapi_headers_clean();
+            } else {
+                error_log('exit lesz');
+                exit;
+            }
         }
-
-        return sprintf('pjc-%s-lock', $hash);
     }
 
     /**
@@ -268,123 +198,10 @@ class CacheManager
      */
     private function can_fcgi_regenerate()
     {
-        return (php_sapi_name() == 'fpm-fcgi' && function_exists('fastcgi_finish_request') && function_exists('pj_sapi_headers_clean'));
-    }
-
-
-    /**
-     * Take a request uri and remove ignored request keys.
-     */
-    private function parse_request_uri($request_uri)
-    {
-        // Prefix the request URI with a host to avoid breaking on requests that start
-        // with a // which parse_url() would treat as containing the hostname.
-        $request_uri = 'http://null' . $request_uri;
-        $parsed = parse_url($request_uri);
-
-        if (! empty($parsed['query'])) {
-            $query = $this->remove_query_args($parsed['query'], $this->ignore_request_keys);
-        }
-
-        $request_uri = ! empty($parsed['path']) ? $parsed['path'] : '';
-        if (! empty($query)) {
-            $request_uri .= '?' . $query;
-        }
-
-        return $request_uri;
-    }
-
-    /**
-     * Take some cookies and remove ones we don't care about.
-     */
-    private function parse_cookies($cookies)
-    {
-        foreach ($cookies as $key => $value) {
-            if (in_array(strtolower($key), $this->ignore_cookies)) {
-                unset($cookies[ $key ]);
-                continue;
-            }
-
-            // Skip cookies beginning with _
-            if (substr($key, 0, 1) === '_') {
-                unset($cookies[ $key ]);
-                continue;
-            }
-        }
-
-        return $cookies;
-    }
-
-    /**
-     * Remove query arguments from a query string.
-     *
-     * @param string $query_string The input query string, such as foo=bar&baz=qux
-     * @param array $args An array of keys to remove.
-     *
-     * @return string The resulting query string.
-     */
-    private function remove_query_args($query_string, $args)
-    {
-        $regex = '#^(?:' . implode('|', array_map('preg_quote', $args)) . ')(?:=|$)#i';
-        $query = explode('&', $query_string);
-        foreach ($query as $key => $value) {
-            if (preg_match($regex, $value)) {
-                unset($query[ $key ]);
-            }
-        }
-
-        $query_string = implode('&', $query);
-        return $query_string;
-    }
-
-    /**
-     * Clean up the current request variables.
-     */
-    private function clean_request()
-    {
-        // Strip ETag and If-Modified-Since headers.
-        unset($_SERVER['HTTP_IF_NONE_MATCH']);
-        unset($_SERVER['HTTP_IF_MODIFIED_SINCE']);
-
-        // Remove ignored query vars.
-        if (! empty($_SERVER['QUERY_STRING'])) {
-            $_SERVER['QUERY_STRING'] = $this->remove_query_args($_SERVER['QUERY_STRING'], $this->ignore_request_keys);
-        }
-
-        if (! empty($_SERVER['REQUEST_URI']) && false !== strpos($_SERVER['REQUEST_URI'], '?')) {
-            $parts = explode('?', $_SERVER['REQUEST_URI'], 2);
-            $_SERVER['REQUEST_URI'] = $parts[0];
-            $query_string = $this->remove_query_args($parts[1], $this->ignore_request_keys);
-            if (! empty($query_string)) {
-                $_SERVER['REQUEST_URI'] .= '?' . $query_string;
-            }
-        }
-
-        foreach ($this->ignore_request_keys as $key) {
-            unset($_GET[ $key ]);
-            unset($_REQUEST[ $key ]);
-        }
-
-        // If we have a whitelist set, clear out everything that does not
-        // match the list, unless we're in the wp-admin (but not in admin-ajax.php).
-        $is_wp_admin = defined('WP_ADMIN') && WP_ADMIN;
-        $is_admin_ajax = defined('DOING_AJAX') && DOING_AJAX;
-        if (! empty($this->whitelist_cookies) && (! $is_wp_admin || $is_admin_ajax)) {
-            foreach ($_COOKIE as $key => $value) {
-                $whitelist = false;
-
-                foreach ($this->whitelist_cookies as $part) {
-                    if (strpos($key, $part) === 0) {
-                        $whitelist = true;
-                        break;
-                    }
-                }
-
-                if (! $whitelist) {
-                    unset($_COOKIE[ $key ]);
-                }
-            }
-        }
+        $envs = ['fpm-fcgi', 'cli'];
+        return (in_array(php_sapi_name(), $envs) && function_exists('fastcgi_finish_request') && function_exists(
+                'pj_sapi_headers_clean'
+            ));
     }
 
     /**
@@ -403,7 +220,7 @@ class CacheManager
 
         // Don't cache CLI requests
         if (php_sapi_name() == 'cli') {
-            return true;
+            // return true;
         }
 
         // Don't cache POST requests.
@@ -419,8 +236,8 @@ class CacheManager
             $key = strtolower($key);
 
             // Don't cache anything if these cookies are set.
-            foreach (array( 'wp', 'wordpress', 'comment_author' ) as $part) {
-                if (strpos($key, $part) === 0 && ! in_array($key, $this->ignore_cookies)) {
+            foreach (array('wp', 'wordpress', 'comment_author') as $part) {
+                if (strpos($key, $part) === 0 && !in_array($key, Request::IGNORECOOKIES)) {
                     return true;
                 }
             }
@@ -430,164 +247,64 @@ class CacheManager
     }
 
     /**
-     * Parse config from pj-user-config.php or $redis_page_cache_config global.
-     */
-    private function maybe_user_config()
-    {
-        global $redis_page_cache_config;
-        $pj_user_config = function_exists('pj_user_config') ? pj_user_config() : array();
-
-        $keys = array(
-            'redis_host',
-            'redis_port',
-            'redis_auth',
-            'redis_db',
-
-            'ttl',
-            'unique',
-            'ignore_cookies',
-            'ignore_request_keys',
-            'whitelist_cookies',
-            'bail_callback',
-            'debug',
-            'gzip',
-        );
-
-        foreach ($keys as $key) {
-            if (isset($pj_user_config['page_cache'][ $key ])) {
-                $this->key = $pj_user_config['page_cache'][ $key ];
-            } elseif (isset($redis_page_cache_config[ $key ])) {
-                $this->key = $redis_page_cache_config[ $key ];
-            }
-        }
-    }
-
-    /**
      * Runs when the output buffer stops.
+     * @param $output
+     * @return string
      */
-    public function output_buffer($output)
+    public function outputBuffer($output): string
     {
-        $cache = true;
-
-        $data = array(
-            'output' => $output,
-            'headers' => array(),
-            'flags' => array(),
-            'status' => http_response_code(),
-            'gzip' => false,
-        );
-
+        error_log('request in output buffer: ' . print_r($this->request, true), 4);
+        $responseCode = http_response_code();
         // Don't cache 5xx errors.
-        if ($data['status'] >= 500) {
-            $cache = false;
+        if ($responseCode >= 500) {
+            return $output;
         }
 
-        $data['flags'] = $this->flags;
-        $data['flags'][] = 'url:' . $this->get_url_hash();
-        $data['flags'] = array_unique($data['flags']);
+        $cachedPage = new CachedPage($output, $responseCode);
+
+        $cachedPage->setFlags(
+            array_merge(
+                $this->expireFlags->getAll(),
+                $this->deleteFlags->getAll(),
+                ['url:'.$this->request->getUri()]
+            )
+        );
 
         // Compression.
-        if ($this->gzip && function_exists('gzcompress')) {
-            $data['output'] = gzcompress($data['output']);
-            $data['gzip'] = true;
+        if ($this->gzip) {
+            $cachedPage
+                ->setOutput($this->compressor->compress($cachedPage->getOutput()))
+                ->setGzip(true);
         }
 
         // Clean up headers he don't want to store.
-        foreach (headers_list() as $header) {
-            list($key, $value) = explode(':', $header, 2);
-            $value = trim($value);
+        $headerParser = new HeaderParser();
+        $headerParser();
+        $cookies = $headerParser->getCookies();
 
-            // For set-cookie headers make sure we're not passing through the
-            // ignored cookies for this request, but if we encounter a non-ignored
-            // cookie being set, then don't cache this request at all.
-
-            if (strtolower($key) == 'set-cookie') {
-                $cookie = explode(';', $value, 2);
-                $cookie = trim($cookie[0]);
-                $cookie = wp_parse_args($cookie);
-
-                foreach ($cookie as $cookie_key => $cookie_value) {
-                    if (! in_array(strtolower($cookie_key), $this->ignore_cookies)) {
-                        $cache = false;
-                        break;
-                    }
-                }
-
-                continue;
-            }
-
-            // Never store X-Pj-Cache-* headers in cache.
-            if (strpos(strtolower($key), 'x-pj-cache') !== false) {
-                continue;
-            }
-
-            $data['headers'][] = $header;
+        /** @var TYPE_NAME $cachedPage */
+        $cacheWriter = new CacheWriter($cachedPage, $this->request, $this->redisClient);
+        //error_log('cached page ' . print_r($cachedPage, true), 4);
+        // Ignore requests with cookie = don't cache
+        if (in_array(Request::IGNORECOOKIES, $cookies)) {
+            error_log('remove from cache: ' . $cacheWriter->getKey()->get(), 4);
+            $cacheWriter->remove();
+            return $output;
         }
 
         if ($this->debug) {
-            $data['debug'] = $this->debug_data;
+            $cachedPage->setDebugData($this->debug_data);
         }
 
-        $data['updated'] = time();
-        //error_log(print_r($data, true), 4);
-        $data = $this->safeSerialize($data);
-        if ($cache || $this->fcgi_regenerate) {
-            $redis = $this->getRedisClient();
-            if (! $redis) {
-                throw new \Exception('Redis has gone.');
-            }
-                
-            $redis->multi();
-            if ($cache) {
-                $key = sprintf('pjc-%s', $this->request_hash);
-                // Okay to cache.
-                $this->redisSet($key, $data);
-
-            } else {
-                // Not okay, so delete any stale entry.
-                $redis->del($key);
-            }
-
-            $redis->del(sprintf('pjc-%s-lock', $this->request_hash));
-            $redis->exec();
+        if (!$this->fcgi_regenerate) {
+            error_log('added to cache (no fcgi_regenerate): ' . $cacheWriter->getKey()->get(), 4);
+            $cacheWriter->add();
         }
-
-        // If this is a background task there's no need to return anything.
-        if ($this->fcgi_regenerate) {
-            return;
-        }
-
+        error_log('output buffer ran, key: ' . $cacheWriter->getKey()->get(), 4);
         return $output;
     }
 
-    public function safeSerialize(array $data)
-    {
-        return base64_encode(serialize($data));
-    }
 
-    public function safeDeSerialize(string $data)
-    {
-        return unserialize(base64_decode($data));
-    }
-
-    /**
-     * Essentially an md5 cache for domain.com/path?query used to
-     * bust caches by URL when needed.
-     */
-    private function get_url_hash($url = false)
-    {
-        if (! $url) {
-            return md5($_SERVER['HTTP_HOST'] ?? '' . $this->parse_request_uri($_SERVER['REQUEST_URI'] ?? ''));
-        }
-
-        $parsed = parse_url($url);
-        $request_uri = ! empty($parsed['path']) ? $parsed['path'] : '';
-        if (! empty($parsed['query'])) {
-            $request_uri .= '?' . $parsed['query'];
-        }
-
-        return md5($parsed['host'] . $this->parse_request_uri($request_uri));
-    }
 
     /**
      * Schedule an expiry on transition of published posts.
@@ -631,16 +348,6 @@ class CacheManager
     }
 
     /**
-     * Add a flag to this request.
-     *
-     * @param string $flag Keep these short and unique, don't overuse.
-     */
-    public function flag($flag)
-    {
-        $this->flags[] = $flag;
-    }
-
-    /**
      * Clear cache by URLs.
      *
      * @param string|array $urls A string or array of URLs to flush.
@@ -649,16 +356,16 @@ class CacheManager
     public function clear_cache_by_url($urls, $expire = true)
     {
         if (is_string($urls)) {
-            $urls = array( $urls );
+            $urls = array($urls);
         }
 
         foreach ($urls as $url) {
-            $flag = 'url:' . $this->get_url_hash($url);
+            $flag = 'url:'.$this->get_url_hash($url);
 
             if ($expire) {
-                $this->flags_expire[] = $flag;
+                $this->expireFlags->add($flag);
             } else {
-                $this->flags_delete[] = $flag;
+                $this->deleteFlags->add($flag);
             }
         }
     }
@@ -672,14 +379,14 @@ class CacheManager
     public function clear_cache_by_flag($flags, $expire = true)
     {
         if (is_string($flags)) {
-            $flags = array( $flags );
+            $flags = array($flags);
         }
 
         foreach ($flags as $flag) {
             if ($expire) {
-                $this->flags_expire[] = $flag;
+                $this->expireFlags->add($flag);
             } else {
-                $this->flags_delete[] = $flag;
+                $this->deleteFlags->add($flag);
             }
         }
     }
@@ -689,46 +396,9 @@ class CacheManager
      */
     public function maybe_clear_caches()
     {
-        $sets = array();
-
-        if (! empty($this->flags_expire)) {
-            $sets['pjc-expired-flags'] = $this->flags_expire;
-        }
-
-        if (! empty($this->flags_delete)) {
-            $sets['pjc-deleted-flags'] = $this->flags_delete;
-        }
-
-        if (empty($sets)) {
-            return;
-        }
-
-        $redis = $this->getRedisClient();
-        if (! $redis) {
-            return;
-        }
-
-        foreach ($sets as $key => $flags) {
-            $flags = array_unique($flags);
-            $timestamp = time();
-            $args = array( $key );
-
-            foreach ($flags as $flag) {
-                array_push($args, $timestamp, $flag);
-            }
-
-            $redis->multi();
-            call_user_func_array(array( $redis, 'zAdd' ), $args);
-            $redis->setTimeout($key, $this->ttl);
-            $redis->zRemRangeByScore($key, '-inf', $timestamp - $this->ttl);
-            $redis->zSize($key);
-            list($_, $_, $r, $count) = $redis->exec();
-
-            // Hard-limit the data size.
-            if ($count > 256) {
-                $redis->ZRemRangeByRank($key, 0, $count - 256 - 1);
-            }
-        }
+        error_log('maybe clear cache');
+        $this->expireFlags->update();
+        $this->deleteFlags->update();
     }
 
     /**
@@ -743,41 +413,21 @@ class CacheManager
         $home = get_option('home');
 
         // Todo, perhaps flag these and expire by home:blog_id flag.
-        $this->clear_cache_by_url(array(
-            trailingslashit($home),
-            $home,
-        ), $expire);
+        $this->clear_cache_by_url(
+            array(
+                trailingslashit($home),
+                $home,
+            ),
+            $expire
+        );
 
-        $this->clear_cache_by_flag(array(
-            sprintf('post:%d:%d', $blog_id, $post_id),
-            sprintf('feed:%d', $blog_id),
-        ), $expire);
-    }
-
-    /**
-     * Pre 4.7 add_action() compatibility.
-     */
-    public function _add_action_compat()
-    {
-        // Filters are not yet available, so hi-jack the $wp_filter global to add our actions.
-        $GLOBALS['wp_filter']['clean_post_cache'][10]['pj-page-cache'] = array(
-            'function' => array( $this, 'clean_post_cache' ), 'accepted_args' => 1 );
-        $GLOBALS['wp_filter']['transition_post_status'][10]['pj-page-cache'] = array(
-            'function' => array( $this, 'transition_post_status' ), 'accepted_args' => 3 );
-        $GLOBALS['wp_filter']['template_redirect'][100]['pj-page-cache'] = array(
-            'function' => array( $this, 'template_redirect' ), 'accepted_args' => 1 );
-    }
-
-    public function getRequestHash() :string
-    {
-        return $this->request_hash;
-    }
-
-    public function setRequestHash(string $hash) :CacheManager
-    {
-        $this->request_hash = $hash;
-
-        return $this;
+        $this->clear_cache_by_flag(
+            array(
+                sprintf('post:%d:%d', $blog_id, $post_id),
+                sprintf('feed:%d', $blog_id),
+            ),
+            $expire
+        );
     }
 
     /**
@@ -796,5 +446,31 @@ class CacheManager
         $this->debug = $debug;
     }
 
-    
+    public function setGzip(bool $value): CacheManager
+    {
+        $this->gzip = $value;
+
+        return $this;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isFcgiRegenerate(): bool
+    {
+        return $this->fcgi_regenerate;
+    }
+
+    /**
+     * @param bool $fcgi_regenerate
+     * @return CacheManager
+     */
+    public function setFcgiRegenerate(bool $fcgi_regenerate): CacheManager
+    {
+        $this->fcgi_regenerate = $fcgi_regenerate;
+
+        return $this;
+    }
+
+
 }
