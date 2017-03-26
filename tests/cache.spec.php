@@ -12,16 +12,18 @@ use Prophecy\Argument;
 describe('CacheManager', function () {
     beforeEach(function () {
         $this->cacheManager = CacheManagerFactory::getManager();
-
+        $this->mocking = true;
         $this->redisClient = ClientFactory::create([
             'server' => '127.0.0.1:6379', // or 'unix:///tmp/redis.sock'
             'timeout' => 2,
         ]);
 
         // Mocking redis
-        $this->mocking = true;
-        $this->redisMock = $this->getProphet()->prophesize('RedisClient\Client\Version\RedisClient3x2');
-        $this->redisClient = $this->redisMock->reveal();
+        if ($this->mocking) {
+            $this->redisMock = $this->getProphet()->prophesize('RedisClient\Client\Version\RedisClient3x2');
+            $this->redisClient = $this->redisMock->reveal();
+        }
+
     });
 
     it('should accept redis client as dependency', function () {
