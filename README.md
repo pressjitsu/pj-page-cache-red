@@ -1,17 +1,23 @@
 # Redis Page Cache for WordPress
 
-A Redis-backed full page caching plugin for WordPress, extremely flexible and fast. Requires a running [Redis server](http://redis.io/) and the [PHP Redis PECL](https://github.com/phpredis/phpredis) extension.
+A Redis-backed full page caching plugin for WordPress, extremely flexible and fast. Requires a running [Redis server](http://redis.io/), a Redis client package (currently only [cheprasov/php-redis-client](https://packagist.org/packages/cheprasov/php-redis-client) is supported), and [Composer](http://http://getcomposer.org)
+
+[![Latest Version on Packagist][ico-version]][link-packagist]
+
+[![Build Status](https://travis-ci.org/balintsera/pj-page-cache-red.svg?branch=master)](https://travis-ci.org/balintsera/pj-page-cache-red)
+
+[![Total Downloads][ico-downloads]][link-downloads]
 
 ## Requirements
 
-Make sure you have a running Redis server and the PECL PHP Redis extension installed and active. Both can be found in packages in most Linux distributions. For example on Debian/Ubuntu:
+Redis server:
 
 ```
-sudo apt-get install redis-server php5-redis
+sudo apt-get install redis-server
 ```
 
-After installing the Redis PECL extension, make sure you restart your PHP server.
-
+This fork of the original package is being actively refactored to use a Redis package instead of the Redis PECL extension and to add some test coverage. My most important plan is to add an interface to hint the current dependency injection, and add more tests. 
+ 
 Make sure your Redis server has enough memory allocated to store your cached pages. The plugin compresses cached pages using gzip to lower memory usage. We recommend anywhere from 16 mb allocated just for page caching. Increase according to your hit-rate. We also recommend disabling flushing Redis cache to disk, and the `allkeys-lru` eviction policy to ensure the server can make more room for new cached pages by evicting older ones. Here is a sample extract from the redis.conf file:
 
 ```
@@ -23,11 +29,10 @@ Don't forget to restart the Redis server after making changes to the configurati
 
 ## Installing the WordPress Plugin
 
-Install and activate this plugin like you normally would into wp-content/uploads/redis-page-cache and create a symbolic link from your wp-content directory, to the advanced-cache.php file in the plugin folder:
+Install the plugin via composer then activate it. It adds the advanced-cache.php file as a symlink into the wp-contents folder:
 
 ```
-cd /path/to/wp-content
-ln -s plugins/redis-page-cache/advanced-cache.php advanced-cache.php
+composer require evista/pj-page-cache-red
 ```
 
 Enable page caching in your WordPress wp-config.php file with a constant:
@@ -35,6 +40,14 @@ Enable page caching in your WordPress wp-config.php file with a constant:
 ```
 define( 'WP_CACHE', true );
 ```
+
+Set up vendor folder path in wp-config.php file with a constant:
+
+```
+define( 'VENDOR', '/var/www/path/to/vendor' );
+```
+
+If omitted, the plugin will try to load autoload.php from the default ../vendor/ dir.
 
 Try visiting your site in incognito mode or cURL, you should see an X-Pj-Cache- header:
 
@@ -45,38 +58,6 @@ curl -v https://example.org -o /dev/null
 
 That's it!
 
-## Configuring the Plugin
-
-This plugin does not have a settings UI or anything like that. All configuration is done strictly from a PHP file through the `$redis_page_cache_config` global. Create a redis-page-cache-config.php and place it next to your wp-config.php file in your WordPress install. Use the following code in wp-config.php to include this file during runtime:
-
-```
-// After the ABSPATH definition, but prior to loading wp-settings.php
-require_once( ABSPATH . 'redis-page-cache-config.php' );
-```
-
-The contents of your file can define the plugin configuration settings:
-
-```
-$redis_page_cache_config = array();
-
-// Change the cache time-to-live to 10 minutes
-$redis_page_cache_config['ttl'] = 600;
-
-// Ignore/strip these cookies from any request to increase cachability.
-$redis_page_cache_config['ignore_cookies'] = array( 'wordpress_test_cookie', 'openstat_ref' );
-
-// Ignore/strip these query variables to increase cachability.
-$redis_page_cache_config['ignore_request_keys'] = array( 'utm_source', 'utm_medium', ... );
-
-// Vary the cache buckets depending on the results of a function call.
-// For example, if you have any mobile plugins, you may wish to serve
-// all mobile requests from a different cache bucket:
-
-$redis_page_cache_config['unique'] = array( 'is_mobile' => my_is_mobile() );
-
-// There are some other configuration options you may wish to adjust. You can
-// find them all by looking at the contents of the advanced-cache.php file.
-```
 
 ## Purging Cache
 
@@ -130,3 +111,11 @@ Note that all the clear cache methods expire (but don't delete) cache by default
 ## Support
 
 If you need help installing and configuring this plugin, feel free to reach out to us via e-mail: support@pressjitsu.com.
+
+
+[ico-downloads]: https://img.shields.io/packagist/dt/evista/pj-page-cache-red.svg?style=flat-square
+[ico-version]: https://img.shields.io/packagist/v/evista/pj-page-cache-red.svg?style=flat-square
+
+[link-downloads]: https://packagist.org/packages/evista/pj-page-cache-red
+[link-packagist]: https://packagist.org/packages/evista/pj-page-cache-red
+[link-travis]: https://travis-ci.org/balintsera/pj-page-cache-red
