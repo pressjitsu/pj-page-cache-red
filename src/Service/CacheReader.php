@@ -15,6 +15,9 @@ use RedisPageCache\Model\KeyFactory;
 class CacheReader
 {
     private $debug = false;
+    private $cacheFound;
+    private $lockFound;
+    private $compressed = false;
 
     public function __construct(Request $request, $redisClient = \Redis)
     {
@@ -54,9 +57,12 @@ class CacheReader
             )
         );
 
+        $this->lockFound = $lock ? $this->safeDeSerialize($lock) : null;
+        $this->cacheFound = $cache ? $this->safeDeSerialize($cache) : null;
+
         return [
-            'cache' => $cache ? $this->safeDeSerialize($cache) : null,
-            'lock' => $lock ? $this->safeDeSerialize($lock) : null,
+            'cache' => $this->cacheFound,
+            'lock' => $this->lockFound,
         ];
     }
 
@@ -82,6 +88,22 @@ class CacheReader
         $this->debug = $debug;
 
         return $this;
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getCacheFound()
+    {
+        return $this->cacheFound;
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getLockFound()
+    {
+        return $this->lockFound;
     }
 
 

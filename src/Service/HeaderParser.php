@@ -5,7 +5,7 @@ namespace RedisPageCache\Service;
 class HeaderParser
 {
     private $headers;
-    private $cookies;
+    private $cookies = [];
 
     public function __construct(array $header = null)
     {

@@ -79,13 +79,14 @@ class CacheManager
         $this->clean_request();
 
         // are there something in the cache?
-        $this->request = new Request(
+        $request = new Request(
             $_SERVER['REQUEST_URI'],
             $_SERVER['HTTP_HOST'],
             $_SERVER['HTTPS'],
             $_SERVER['REQUEST_METHOD'],
             $_COOKIE
         );
+        $this->setRequest($request);
         $cacheReader = new CacheReader($this->request, $this->redisClient);
         $results = $cacheReader->checkRequest();
         $cache = $results['cache'];
@@ -101,6 +102,12 @@ class CacheManager
 
         // Cache it, smash it.
         ob_start(array($this, 'outputBuffer'));
+    }
+
+    // This is important for tests, please keep it
+    public function setRequest(Request $request)
+    {
+        $this->request = $request;
     }
 
     private function responseFromCache(array $cache, $lock)
@@ -289,6 +296,7 @@ class CacheManager
      */
     public function outputBuffer($output): string
     {
+        error_log('request ' . print_r($this->request, true), 4);
         $responseCode = http_response_code();
         // Don't cache 5xx errors.
         if ($responseCode >= 500) {
@@ -301,14 +309,14 @@ class CacheManager
             array_merge(
                 $this->expireFlags->getAll(),
                 $this->deleteFlags->getAll(),
-                ['url:'.$this->get_url_hash()]
+                ['url:'.$this->request->getUri()]
             )
         );
 
         // Compression.
         if ($this->gzip) {
             $cachedPage
-                ->setOutput($this->compressor->compress($cachedPage['output']))
+                ->setOutput($this->compressor->compress($cachedPage->getOutput()))
                 ->setGzip(true);
         }
 
@@ -317,10 +325,12 @@ class CacheManager
         $headerParser();
         $cookies = $headerParser->getCookies();
 
-        $cacheWriter = new CacheWriter($this->redisClient, $this->request);
-
+        /** @var TYPE_NAME $cachedPage */
+        $cacheWriter = new CacheWriter($cachedPage, $this->request, $this->redisClient);
+        error_log('cached page ' . print_r($cachedPage, true), 4);
         // Ignore requests with cookie = don't cache
-        if (in_array($this->ignore_cookies, $cookies)) {
+        if (in_array(Request::IGNORECOOKIES, $cookies)) {
+            error_log('remove from cache: ' . $cacheWriter->getKey()->get(), 4);
             $cacheWriter->remove();
             return $output;
         }
@@ -330,30 +340,14 @@ class CacheManager
         }
 
         if ($this->fcgi_regenerate) {
-             $cacheWriter->add();
-        }
 
+            $cacheWriter->add();
+        }
+        error_log('not added to cache: ' . $cacheWriter->getKey()->get(), 4);
         return $output;
     }
 
-    /**
-     * Essentially an md5 cache for domain.com/path?query used to
-     * bust caches by URL when needed.
-     */
-    private function get_url_hash($url = false)
-    {
-        if (!$url) {
-            return md5($_SERVER['HTTP_HOST'] ?? ''.$this->parse_request_uri($_SERVER['REQUEST_URI'] ?? ''));
-        }
 
-        $parsed = parse_url($url);
-        $request_uri = !empty($parsed['path']) ? $parsed['path'] : '';
-        if (!empty($parsed['query'])) {
-            $request_uri .= '?'.$parsed['query'];
-        }
-
-        return md5($parsed['host'].$this->parse_request_uri($request_uri));
-    }
 
     /**
      * Schedule an expiry on transition of published posts.
@@ -394,16 +388,6 @@ class CacheManager
         }
 
         $this->clear_cache_by_post_id($post_id, false);
-    }
-
-    /**
-     * Add a flag to this request.
-     *
-     * @param string $flag Keep these short and unique, don't overuse.
-     */
-    public function flag($flag)
-    {
-        $this->flags[] = $flag;
     }
 
     /**
@@ -523,4 +507,25 @@ class CacheManager
 
         return $this;
     }
+
+    /**
+     * @return bool
+     */
+    public function isFcgiRegenerate(): bool
+    {
+        return $this->fcgi_regenerate;
+    }
+
+    /**
+     * @param bool $fcgi_regenerate
+     * @return CacheManager
+     */
+    public function setFcgiRegenerate(bool $fcgi_regenerate): CacheManager
+    {
+        $this->fcgi_regenerate = $fcgi_regenerate;
+
+        return $this;
+    }
+
+
 }

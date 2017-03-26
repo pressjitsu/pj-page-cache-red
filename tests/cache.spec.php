@@ -49,7 +49,7 @@ describe('CacheManager', function () {
             );
         $hash = $request->getHash();
         var_dump($hash);
-        assert($hash === "510edce70c0a2c5127e339cec0c62346", "Hash is not match");
+        assert($hash === "4ebad7e867ffa267c3c91ed43371aa2d", "Hash does not match");
     });
 
     it('should create cache and lock keys from hash', function () {
@@ -61,10 +61,10 @@ describe('CacheManager', function () {
         );
         $defaultKey = KeyFactory::getKey(KeyFactory::TYPE_DEFAULT, $request);
         $result = $defaultKey->get();
-        assert($result === "pjc-510edce70c0a2c5127e339cec0c62346", 'cache key generation failed');
+        assert($result === "pjc-4ebad7e867ffa267c3c91ed43371aa2d", 'cache key generation failed');
         $lockKey = KeyFactory::getKey(KeyFactory::TYPE_LOCK, $request);
         $result = $lockKey->get();
-        assert($result === "pjc-lock-510edce70c0a2c5127e339cec0c62346", 'lock cache key generation failed');
+        assert($result === "pjc-lock-4ebad7e867ffa267c3c91ed43371aa2d", 'lock cache key generation failed');
     });
   
     it('should return results when checks something available in cache', function () {
@@ -91,23 +91,37 @@ describe('CacheManager', function () {
     });
 
     it('should add example content to the redis cache (with gzip)', function () {
-        $this->cacheManager->setGzip(true);
-        
-        $key = "pjc-5bcc4473510ee608f6d3395d47f067b8";
         // remove if exists
-        $redis = $this->cacheManager->getRedisClient();
+        $redis = $this->redisClient;
+
+        $request = new \RedisPageCache\Model\Request(
+            'example.com/page/nothing.html',
+            '',
+            '',
+            'GET'
+        );
+        // We need a brand new manager
+        $this->cacheManager = CacheManagerFactory::getManager();
+        $this->cacheManager->setGzip(true);
+        $this->cacheManager->setRequest($request);
+        $defaultKey = KeyFactory::getKey(KeyFactory::TYPE_DEFAULT, $request);
+        $key = $defaultKey->get();
+        // remove from Redis if exists
         $redis->del($key);
-        $hash = $this->cacheManager->generateHashFomRequestParams(['request' => 'nothing2.html']);
-        $this->cacheManager->setRequestHash($hash); // temporary
+        $this->cacheManager->setFcgiRegenerate(true);
         $this->cacheManager->outputBuffer("example content");
   
-        $redis = $this->cacheManager->getRedisClient();
         $rawResult = $redis->get($key);
-        $result = $this->cacheManager->safeDeSerialize($rawResult);
-        assert(is_array($result), "result is not an array");
-        assert(array_key_exists("output", $result), "result array doesn't have an 'output' key");
+        var_dump('rawResult for key: ' . $key, $rawResult);
+        assert($rawResult !== null, 'Raw result is null, probably not saved');
 
-        assert(md5($result["output"]) === "e9ab3ae8fb8cfd581194806809c00918", '$result["output"] is not "e9ab3ae8fb8cfd581194806809c00918"');
+        $cacheReader = new \RedisPageCache\Service\CacheReader($request, $redis);
+        $results = $cacheReader->checkRequest();
+        $compressor = new GzipCompressor();
+        assert(is_array($results), "result is not an array");
+        assert(property_exists($results['cache'], 'output'), "result doesn't have an 'output' property");
+
+        assert($compressor->deCompress($results['cache']->getOutput()) === "example content", '$result::output is not "result in redis"');
     });
      it('should add example content to the redis cache without gzip', function () {
         $this->cacheManager->setGzip(false);

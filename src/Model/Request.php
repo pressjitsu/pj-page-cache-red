@@ -18,7 +18,7 @@ class Request
     private $unique = [];
     private $cookies;
     private $ignoreRequestKeys = array('utm_source', 'utm_medium', 'utm_term', 'utm_content', 'utm_campaign');
-    private $ignoreCookies = array('wordpress_test_cookie');
+    const IGNORECOOKIES = array('wordpress_test_cookie');
 
     public function __construct(string $requestURI = null, string $host = null, string $https = null, string $method = null, array $cookies = null)
     {
@@ -27,9 +27,9 @@ class Request
         } else {
             $this->uri = $requestURI;
         }
-        
-        $this->parseRequestURI();
-        
+
+        $this->uri = $this->parseRequestURI($this->uri);
+
         if (null === $host) {
             $this->host = $_SERVER['HTTP_HOST'];
         } else {
@@ -60,13 +60,12 @@ class Request
         }
     }
     
-    private function parseRequestURI()
+    private function parseRequestURI($requestUri)
     {
         // Prefix the request URI with a host to avoid breaking on requests that start
         // with a // which parse_url() would treat as containing the hostname.
-        $requestUri = 'http://null'. $this->uri;
+        $requestUri = 'http://null'. $requestUri;
         $parsed = parse_url($requestUri);
-
         if (!empty($parsed['query'])) {
             $query = $this->removeQueryArgs($parsed['query']);
         }
@@ -97,7 +96,7 @@ class Request
     private function parseCookies(array $cookies): array
     {
         foreach ($cookies as $key => $value) {
-            if (in_array(strtolower($key), $this->ignoreCookies)) {
+            if (in_array(strtolower($key), self::IGNORECOOKIES)) {
                 unset($cookies[$key]);
                 continue;
             }
@@ -128,4 +127,44 @@ class Request
     {
         return md5(serialize($this->getArray()));
     }
+
+    /**
+     * Essentially an md5 cache for domain.com/path?query used to
+     * bust caches by URL when needed.
+     */
+    public function getUrlHash($url = false)
+    {
+        if (!$url) {
+            return md5($_SERVER['HTTP_HOST'] ?? ''.$this->parseRequestURI($_SERVER['REQUEST_URI'] ?? ''));
+        }
+
+        $parsed = parse_url($url);
+        $request_uri = !empty($parsed['path']) ? $parsed['path'] : '';
+        if (!empty($parsed['query'])) {
+            $request_uri .= '?'.$parsed['query'];
+        }
+
+        return md5($parsed['host'].$this->parseRequestURI($request_uri));
+    }
+
+    /**
+     * @return string
+     */
+    public function getUri(): string
+    {
+        return $this->uri;
+    }
+
+    /**
+     * @param string $uri
+     * @return Request
+     */
+    public function setUri(string $uri): Request
+    {
+        $this->uri = $uri;
+
+        return $this;
+    }
+
+
 }

@@ -80,5 +80,14 @@ class CacheWriter
         return $this;
     }
 
+    /**
+     * @return \RedisPageCache\Model\Keyable
+     */
+    public function getKey(): \RedisPageCache\Model\Keyable
+    {
+        return $this->key;
+    }
+
+
 
 }
