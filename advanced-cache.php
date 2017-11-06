@@ -437,6 +437,9 @@ class Redis_Page_Cache {
 		// Don't cache 5xx errors.
 		if ( $data['status'] >= 500 )
 			$cache = false;
+		
+		if ( defined( 'DONOTCACHEPAGE' ) && DONOTCACHEPAGE )
+			$cache = false;
 
 		$data['flags'] = self::$flags;
 		$data['flags'][] = 'url:' . self::get_url_hash();
