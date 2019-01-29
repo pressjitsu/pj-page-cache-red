@@ -230,7 +230,12 @@ class Redis_Page_Cache {
 			return self::$redis;
 
 		$redis = new Redis;
-		$connect = $redis->connect( self::$redis_host, self::$redis_port );
+                if ( ! defined( 'WP_REDIS_PATH' ) ) {
+                        $connect = $redis->connect( self::$redis_host, self::$redis_port );
+                }
+                else {
+                        $connect = $redis->connect( WP_REDIS_PATH );
+                }
 
 		if ( ! empty( self::$redis_auth ) )
 			$redis->auth( self::$redis_auth );
