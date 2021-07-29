@@ -15,6 +15,7 @@ class Redis_Page_Cache {
 	private static $redis_port = 6379;
 	private static $redis_db = 0;
 	private static $redis_auth = '';
+	private static $redis_persistent = false;
 
 	private static $ttl = 300;
 	private static $max_ttl = 3600;
@@ -230,7 +231,11 @@ class Redis_Page_Cache {
 			return self::$redis;
 
 		$redis = new Redis;
-		$connect = $redis->connect( self::$redis_host, self::$redis_port );
+		if ( self::$redis_persistent ) {
+			$connect = $redis->pconnect( self::$redis_host, self::$redis_port );
+		} else {
+			$connect = $redis->connect( self::$redis_host, self::$redis_port );
+		}
 
 		if ( ! empty( self::$redis_auth ) )
 			$redis->auth( self::$redis_auth );
@@ -400,6 +405,7 @@ class Redis_Page_Cache {
 			'redis_port',
 			'redis_auth',
 			'redis_db',
+			'redis_persistent',
 
 			'ttl',
 			'unique',
