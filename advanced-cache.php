@@ -23,6 +23,7 @@ class Redis_Page_Cache {
 	private static $headers = array();
 	private static $ignore_cookies = array( 'wordpress_test_cookie' );
 	private static $ignore_request_keys = array( 'utm_source', 'utm_medium', 'utm_term', 'utm_content', 'utm_campaign' );
+	private static $ignore_urls = array('/*jetpack=comms*', '/*removed_item*', '/my-account*', '/wc-api/*', '/edd-api/*', '/wp-json*');
 	private static $whitelist_cookies = null;
 	private static $bail_callback = false;
 	private static $debug = false;
@@ -357,6 +358,27 @@ class Redis_Page_Cache {
 	}
 
 	/**
+	 * Match string against a pattern.
+	 * 
+	 * @param string $pattern The wildcard pattern. 
+	 * @param string $subject The tested string.
+	 *
+	 * @return boolean Returns true if there is a match, false otherwise. 
+	 */
+	private static function wildcard_match($pattern, $subject) {
+
+		$pattern='#^'.preg_quote($pattern).'$#i'; // Case insensitive
+		$pattern=str_replace('\*', '.*', $pattern);
+	
+		if(!preg_match($pattern, $subject, $regs)){
+			return false;
+		}
+	
+		return true;
+
+	}
+	
+	/**
 	 * Check some conditions where pages should never be cached or served from cache.
 	 */
 	private static function maybe_bail() {
@@ -390,6 +412,26 @@ class Redis_Page_Cache {
 			}
 		}
 
+		// Don't cache excluded URLs
+		$excluded_urls = self::$ignore_urls;
+		if( is_array($excluded_urls) && count($excluded_urls) > 0 ) {
+
+			$current_url = $_SERVER['REQUEST_URI'];
+
+			if( isset($_SERVER['QUERY_STRING']) && strlen($_SERVER['QUERY_STRING']) > 0 ){
+				$current_url .= "?{$_SERVER['QUERY_STRING']}";
+			}
+
+			foreach( $excluded_urls as $url_to_exclude ) {
+
+				if( self::wildcard_match($url_to_exclude, $current_url) ){
+					return true;
+				}
+
+			}
+
+		}
+		
 		return false; // Don't bail.
 	}
 
@@ -411,6 +453,7 @@ class Redis_Page_Cache {
 			'unique',
 			'ignore_cookies',
 			'ignore_request_keys',
+			'ignore_urls',
 			'whitelist_cookies',
 			'bail_callback',
 			'debug',
