@@ -230,22 +230,27 @@ class Redis_Page_Cache {
 		if ( ! class_exists( 'Redis' ) )
 			return self::$redis;
 
-		$redis = new Redis;
-		if ( self::$redis_persistent ) {
-			$connect = $redis->pconnect( self::$redis_host, self::$redis_port );
-		} else {
-			$connect = $redis->connect( self::$redis_host, self::$redis_port );
-		}
+		try {
+			$redis = new Redis;
+			if ( self::$redis_persistent ) {
+				$connect = $redis->pconnect( self::$redis_host, self::$redis_port );
+			} else {
+				$connect = $redis->connect( self::$redis_host, self::$redis_port );
+			}
 
-		if ( ! empty( self::$redis_auth ) )
-			$redis->auth( self::$redis_auth );
+			if ( ! empty( self::$redis_auth ) )
+				$redis->auth( self::$redis_auth );
 
-		if ( ! empty( self::$redis_db ) )
-			$redis->select( self::$redis_db );
+			if ( ! empty( self::$redis_db ) )
+				$redis->select( self::$redis_db );
 
-		if ( true === $connect ) {
-			$redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP );
-			self::$redis = $redis;
+			if ( true === $connect ) {
+				$redis->setOption( Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP );
+				self::$redis = $redis;
+			}
+		} catch ( \Exception $e ) {
+			error_log( $e->getMessage() );
+			self::$redis = false;
 		}
 
 		return self::$redis;
