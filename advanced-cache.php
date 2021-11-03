@@ -592,6 +592,15 @@ class Redis_Page_Cache {
 	}
 
 	/**
+	 * Clear all cache
+	 */
+	public static function clear_all_cache() {
+		$redis = self::get_redis();
+		$redis->del($redis->keys(self::$redis_prefix . 'page-cache:*'));
+		return;
+	}
+
+	/**
 	 * Clear cache by URLs.
 	 *
 	 * @param string|array $urls A string or array of URLs to flush.
