@@ -16,3 +16,5 @@
  * Please keep this helper plugin active for update notifications and future
  * helper and CLI functionality.
  */
+define( 'WP_REDIS_FULL_PAGE_PATH', __DIR__ );
+require_once WP_REDIS_FULL_PAGE_PATH . '/includes/settings.php';

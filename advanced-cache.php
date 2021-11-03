@@ -682,6 +682,17 @@ class Redis_Page_Cache {
 		$blog_id = get_current_blog_id();
 		$home = get_option( 'home' );
 
+		// Plugins Settings always purge urls
+		$redis_full_page_cache_options = get_option( 'redis_full_page_cache_option_name' );
+		$redis_options_always_purge_urls = array();
+		$redis_options_always_purge_urls = explode(",", $redis_full_page_cache_options['always_purge_urls_0']);
+
+		$plugin_options_purge = array_map(
+			function( $url ) use(&$blog_id) {
+				return sprintf( 'post:%d:%d', $blog_id, url_to_postid( $url ) );
+			}, $redis_options_always_purge_urls
+		);
+
 		$purge_posts = array_map(
 			function( $url ) use(&$blog_id) {
 				return sprintf( 'post:%d:%d', $blog_id, url_to_postid( $url ) );
@@ -694,7 +705,7 @@ class Redis_Page_Cache {
 			sprintf( 'feed:%d', $blog_id )
 		);
 
-		$merge_purge_posts = array_merge( $purge_posts, $default_purge_posts );
+		$merge_purge_posts = array_merge( $plugin_options_purge, $purge_posts, $default_purge_posts );
 		self::clear_cache_by_flag( $merge_purge_posts, $expire );
 	}
 
