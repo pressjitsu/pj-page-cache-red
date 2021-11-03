@@ -508,10 +508,10 @@ class Redis_Page_Cache {
 				$redis->set( sprintf( 'pjc-%s', self::$request_hash ), $data );
 			} else {
 				// Not okay, so delete any stale entry.
-				$redis->delete( sprintf( 'pjc-%s', self::$request_hash ) );
+				$redis->del( sprintf( 'pjc-%s', self::$request_hash ) );
 			}
 
-			$redis->delete( sprintf( 'pjc-%s-lock', self::$request_hash ) );
+			$redis->del( sprintf( 'pjc-%s-lock', self::$request_hash ) );
 			$redis->exec();
 		}
 
@@ -650,9 +650,9 @@ class Redis_Page_Cache {
 
 			$redis->multi();
 			call_user_func_array( array( $redis, 'zAdd' ), $args );
-			$redis->setTimeout( $key, self::$ttl );
+			$redis->expire( $key, self::$ttl );
 			$redis->zRemRangeByScore( $key, '-inf', $timestamp - self::$ttl );
-			$redis->zSize( $key );
+			$redis->zCard( $key );
 			list( $_, $_, $r, $count ) = $redis->exec();
 
 			// Hard-limit the data size.
