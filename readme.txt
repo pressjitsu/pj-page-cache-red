@@ -1,9 +1,9 @@
 === Redis Page Cache ===
-Contributors: pressjitsu, soulseekah
+Contributors: pressjitsu, soulseekah, zlmitchell
 Tags: cache, caching, performance, redis
 Requires at least: 4.4
-Tested up to: 4.9.5
-Stable tag: 0.8.3
+Tested up to: 5.8.1
+Stable tag: 0.9.0
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -36,6 +36,17 @@ For an installation and configuration guide please visit the [full documentation
 For an installation and configuration guide please visit the [full documentation](https://github.com/pressjitsu/pj-page-cache-red).
 
 == Changelog ==
+
+= 0.9.0 =
+* Introduce Settings admin panel to allow Always Purge Pages
+* Added purge all cache function
+* Introduced Purge Buttons like nginx-helper to allow purging of pages by content editors
+* Update code for Redis Deprecations (zSize, setTimeout, delete)
+* Rewrote clear_cache_by_url to convert the url to id and use the primary clear function clear_cache_by_post_id
+* Added ability to modify redis_prefix
+* Added additional headers function to allow showing cache_age
+* Added x-cache: BYPASS when cache is bypassed using maybe_bail()
+* Changed the format of redis cache keys to be in its own path to allow configuration of multi tenancy redis hosts
 
 = 0.8.3 =
 * Introduce _COOKIE whitelisting and max TTLs

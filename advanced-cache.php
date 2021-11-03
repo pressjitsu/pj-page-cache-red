@@ -9,6 +9,13 @@
 if ( ! defined( 'ABSPATH' ) )
 	die();
 
+// Override variables comma seperated strings
+$always_purge_urls_override = array();
+$always_purge_urls_override = explode(",", getenv('ALWAYS_PURGE_URLS'));
+$never_cache_urls = array();
+$never_cache_urls = explode(",", getenv('NEVER_CACHE_URLS'));
+
+
 class Redis_Page_Cache {
 	private static $redis;
 	private static $redis_host = '127.0.0.1';
@@ -16,6 +23,7 @@ class Redis_Page_Cache {
 	private static $redis_db = 0;
 	private static $redis_auth = '';
 	private static $redis_persistent = false;
+	private static $redis_prefix = '';
 
 	private static $ttl = 300;
 	private static $max_ttl = 3600;
@@ -26,6 +34,7 @@ class Redis_Page_Cache {
 	private static $whitelist_cookies = null;
 	private static $bail_callback = false;
 	private static $debug = false;
+	private static $add_headers = true;
 	private static $gzip = true;
 
 	private static $lock = false;
@@ -45,8 +54,6 @@ class Redis_Page_Cache {
 	public static function cache_init() {
 		// Clear caches in bulk at the end.
 		register_shutdown_function( array( __CLASS__, 'maybe_clear_caches' ) );
-
-		header( 'X-Pj-Cache-Status: miss' );
 
 		if ( function_exists( 'add_action' ) ) {
 			add_action( 'clean_post_cache', array( __CLASS__, 'clean_post_cache' ) );
@@ -93,7 +100,7 @@ class Redis_Page_Cache {
 		self::$request_hash = md5( serialize( $request_hash ) );
 		unset( $request_hash );
 
-		if ( self::$debug ) {
+		if ( self::$debug || self::$add_headers ) {
 			header( 'X-Pj-Cache-Key: ' . self::$request_hash );
 		}
 
@@ -103,8 +110,8 @@ class Redis_Page_Cache {
 
 		// Look for an existing cache entry by request hash.
 		list( $cache, $lock ) = $redis->mGet( array(
-			sprintf( 'pjc-%s', self::$request_hash ),
-			sprintf( 'pjc-%s-lock', self::$request_hash ),
+			sprintf( self::$redis_prefix . 'pjc:%s', self::$request_hash ),
+			sprintf( self::$redis_prefix . 'pjc:%s-lock', self::$request_hash ),
 		) );
 
 		// Something is in cache.
@@ -113,12 +120,14 @@ class Redis_Page_Cache {
 
 			if ( self::$debug ) {
 				header( 'X-Pj-Cache-Time: ' . $cache['updated'] );
+			}
+			if ( self::$debug ) {
 				header( 'X-Pj-Cache-Flags: ' . implode( ' ', $cache['flags'] ) );
 			}
 
 			$redis->multi();
-			$redis->zRangeByScore( 'pjc-expired-flags', $cache['updated'], '+inf', array( 'withscores' => true ) );
-			$redis->zRangeByScore( 'pjc-deleted-flags', $cache['updated'], '+inf', array( 'withscores' => true ) );
+			$redis->zRangeByScore( self::$redis_prefix . 'pjc:expired-flags', $cache['updated'], '+inf', array( 'withscores' => true ) );
+			$redis->zRangeByScore( self::$redis_prefix . 'pjc:deleted-flags', $cache['updated'], '+inf', array( 'withscores' => true ) );
 			list( $expired_flags, $deleted_flags ) = $redis->exec();
 
 			$expired = $cache['updated'] + self::$ttl < time();
@@ -150,7 +159,7 @@ class Redis_Page_Cache {
 
 				// If it's not locked, lock it for regeneration and don't serve from cache.
 				if ( ! $lock ) {
-					$lock = $redis->set( sprintf( 'pjc-%s-lock', self::$request_hash ), true, array( 'nx', 'ex' => 30 ) );
+					$lock = $redis->set( sprintf( self::$redis_prefix . 'pjc:%s-lock', self::$request_hash ), true, array( 'nx', 'ex' => 30 ) );
 					if ( $lock ) {
 						if ( self::can_fcgi_regenerate() ) {
 							// Well, actually, if we can serve a stale copy but keep the process running
@@ -179,11 +188,14 @@ class Redis_Page_Cache {
 			if ( $serve_cache ) {
 
 				// If we're regenareting in background, let everyone know.
-				$status = ( self::$fcgi_regenerate ) ? 'expired' : 'hit';
+				$status = ( self::$fcgi_regenerate ) ? 'expired' : 'HIT';
 				header( 'X-Pj-Cache-Status: ' . $status );
 
 				if ( self::$debug )
 					header( sprintf( 'X-Pj-Cache-Expires: %d', self::$ttl - ( time() - $cache['updated'] ) ) );
+
+				if ( self::$debug || self::$add_headers )
+					header( sprintf( 'X-Pj-Cache-Age: %d', ( time() - $cache['updated'] ) ) );
 
 				// Output cached status code.
 				if ( ! empty( $cache['status'] ) )
@@ -366,6 +378,7 @@ class Redis_Page_Cache {
 	 */
 	private static function maybe_bail() {
 
+		header( 'X-Pj-Cache-Status: BYPASS' );
 		// Allow an external configuration file to append to the bail method.
 		if ( self::$bail_callback && is_callable( self::$bail_callback ) ) {
 			$callback_result = call_user_func( self::$bail_callback );
@@ -384,17 +397,23 @@ class Redis_Page_Cache {
 		if ( self::$ttl < 1 )
 			return true;
 
+		// Always Bypass Specified Pages Cannot be included in settings as it is processed before wordpress initializes
+		if ( isset($never_cache_urls) && ! empty($never_cache_urls) && in_array($_SERVER['REQUEST_URI'], $never_cache_urls)) {
+			return true;
+		}
+
 		foreach ( $_COOKIE as $key => $value ) {
 			$key = strtolower( $key );
 
 			// Don't cache anything if these cookies are set.
 			foreach ( array( 'wp', 'wordpress', 'comment_author' ) as $part ) {
 				if ( strpos( $key, $part ) === 0 && ! in_array( $key, self::$ignore_cookies ) ) {
+					header( 'X-Pj-Cache-Status: BYPASS cookie' );
 					return true;
 				}
 			}
 		}
-
+		header( 'X-Pj-Cache-Status: MISS' );
 		return false; // Don't bail.
 	}
 
@@ -411,6 +430,7 @@ class Redis_Page_Cache {
 			'redis_auth',
 			'redis_db',
 			'redis_persistent',
+			'redis_prefix',
 
 			'ttl',
 			'unique',
@@ -484,7 +504,7 @@ class Redis_Page_Cache {
 			}
 
 			// Never store X-Pj-Cache-* headers in cache.
-			if ( strpos( strtolower( $key ), 'x-pj-cache' ) !== false )
+			if ( strpos( strtolower( $key ), 'X-Pj-cache' ) !== false )
 				continue;
 
 			$data['headers'][] = $header;
@@ -505,13 +525,13 @@ class Redis_Page_Cache {
 
 			if ( $cache ) {
 				// Okay to cache.
-				$redis->set( sprintf( 'pjc-%s', self::$request_hash ), $data );
+				$redis->set( sprintf( self::$redis_prefix . 'pjc:%s', self::$request_hash ), $data );
 			} else {
 				// Not okay, so delete any stale entry.
-				$redis->delete( sprintf( 'pjc-%s', self::$request_hash ) );
+				$redis->del( sprintf( self::$redis_prefix . 'pjc:%s', self::$request_hash ) );
 			}
 
-			$redis->delete( sprintf( 'pjc-%s-lock', self::$request_hash ) );
+			$redis->del( sprintf( self::$redis_prefix . 'pjc:%s-lock', self::$request_hash ) );
 			$redis->exec();
 		}
 
@@ -582,24 +602,32 @@ class Redis_Page_Cache {
 	}
 
 	/**
+	 * Clear all cache
+	 */
+	public static function clear_all_cache() {
+		$redis = self::get_redis();
+		$redis->del($redis->keys(self::$redis_prefix . 'pjc:*'));
+		return;
+	}
+
+	/**
 	 * Clear cache by URLs.
 	 *
 	 * @param string|array $urls A string or array of URLs to flush.
 	 * @param bool $expire Expire cache by default, or delete if set to false.
 	 */
 	public static function clear_cache_by_url( $urls, $expire = true ) {
+		$blog_id = get_current_blog_id();
 		if ( is_string( $urls ) )
 			$urls = array( $urls );
 
-		foreach ( $urls as $url ) {
-			$flag = 'url:' . self::get_url_hash( $url );
+		$page_id_array = array_map(
+			function( $url ) {
+				return url_to_postid( $url );
+			}, $urls
+		);
 
-			if ( $expire ) {
-				self::$flags_expire[] = $flag;
-			} else {
-				self::$flags_delete[] = $flag;
-			}
-		}
+		self::clear_cache_by_post_id( $page_id_array, $expire );
 	}
 
 	/**
@@ -619,6 +647,7 @@ class Redis_Page_Cache {
 				self::$flags_delete[] = $flag;
 			}
 		}
+		return;
 	}
 
 	/**
@@ -628,10 +657,10 @@ class Redis_Page_Cache {
 		$sets = array();
 
 		if ( ! empty( self::$flags_expire ) )
-			$sets['pjc-expired-flags'] = self::$flags_expire;
+			$sets[self::$redis_prefix . 'pjc:expired-flags'] = self::$flags_expire;
 
 		if ( ! empty( self::$flags_delete ) )
-			$sets['pjc-deleted-flags'] = self::$flags_delete;
+			$sets[self::$redis_prefix . 'pjc:deleted-flags'] = self::$flags_delete;
 
 		if ( empty( $sets ) )
 			return;
@@ -650,9 +679,9 @@ class Redis_Page_Cache {
 
 			$redis->multi();
 			call_user_func_array( array( $redis, 'zAdd' ), $args );
-			$redis->setTimeout( $key, self::$ttl );
+			$redis->expire( $key, self::$ttl );
 			$redis->zRemRangeByScore( $key, '-inf', $timestamp - self::$ttl );
-			$redis->zSize( $key );
+			$redis->zCard( $key );
 			list( $_, $_, $r, $count ) = $redis->exec();
 
 			// Hard-limit the data size.
@@ -669,19 +698,34 @@ class Redis_Page_Cache {
 	 * @param bool $expire Expire cache by default, or delete if set to false.
 	 */
 	public static function clear_cache_by_post_id( $post_id, $expire = true ) {
+		global $always_purge_urls_override;
 		$blog_id = get_current_blog_id();
 		$home = get_option( 'home' );
 
-		// Todo, perhaps flag these and expire by home:blog_id flag.
-		self::clear_cache_by_url( array(
-			trailingslashit( $home ),
-			$home,
-		), $expire );
+		$redis_full_page_cache_options = get_option( 'redis_full_page_cache_option_name' );
+		$redis_options_always_purge_urls = array();
+		$redis_options_always_purge_urls = explode(",", $redis_full_page_cache_options['always_purge_urls_0']);
 
-		self::clear_cache_by_flag( array(
+		$plugin_options_purge = array_map(
+			function( $url ) use(&$blog_id) {
+				return sprintf( 'post:%d:%d', $blog_id, url_to_postid( $url ) );
+			}, $redis_options_always_purge_urls
+		);
+
+		$purge_posts = array_map(
+			function( $url ) use(&$blog_id) {
+				return sprintf( 'post:%d:%d', $blog_id, url_to_postid( $url ) );
+			}, $always_purge_urls_override
+		);
+
+		$default_purge_posts = array(
+			sprintf( 'post:%d:%d', $blog_id, url_to_postid( $home ) ),
 			sprintf( 'post:%d:%d', $blog_id, $post_id ),
-			sprintf( 'feed:%d', $blog_id ),
-		), $expire );
+			sprintf( 'feed:%d', $blog_id )
+		);
+
+		$merge_purge_posts = array_merge( $plugin_options_purge, $purge_posts, $default_purge_posts );
+		self::clear_cache_by_flag( $merge_purge_posts, $expire );
 	}
 
 	/**
