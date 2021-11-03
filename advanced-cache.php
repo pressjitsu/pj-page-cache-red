@@ -27,6 +27,7 @@ class Redis_Page_Cache {
 	private static $whitelist_cookies = null;
 	private static $bail_callback = false;
 	private static $debug = false;
+	private static $add_headers = true;
 	private static $gzip = true;
 
 	private static $lock = false;
@@ -46,8 +47,6 @@ class Redis_Page_Cache {
 	public static function cache_init() {
 		// Clear caches in bulk at the end.
 		register_shutdown_function( array( __CLASS__, 'maybe_clear_caches' ) );
-
-		header( 'X-Pj-Cache-Status: miss' );
 
 		if ( function_exists( 'add_action' ) ) {
 			add_action( 'clean_post_cache', array( __CLASS__, 'clean_post_cache' ) );
@@ -94,7 +93,7 @@ class Redis_Page_Cache {
 		self::$request_hash = md5( serialize( $request_hash ) );
 		unset( $request_hash );
 
-		if ( self::$debug ) {
+		if ( self::$debug || self::$add_headers ) {
 			header( 'X-Pj-Cache-Key: ' . self::$request_hash );
 		}
 
@@ -180,11 +179,14 @@ class Redis_Page_Cache {
 			if ( $serve_cache ) {
 
 				// If we're regenareting in background, let everyone know.
-				$status = ( self::$fcgi_regenerate ) ? 'expired' : 'hit';
+				$status = ( self::$fcgi_regenerate ) ? 'expired' : 'HIT';
 				header( 'X-Pj-Cache-Status: ' . $status );
 
 				if ( self::$debug )
 					header( sprintf( 'X-Pj-Cache-Expires: %d', self::$ttl - ( time() - $cache['updated'] ) ) );
+
+				if ( self::$debug || self::$add_headers )
+					header( sprintf( 'X-Pj-Cache-Age: %d', ( time() - $cache['updated'] ) ) );
 
 				// Output cached status code.
 				if ( ! empty( $cache['status'] ) )
@@ -367,6 +369,7 @@ class Redis_Page_Cache {
 	 */
 	private static function maybe_bail() {
 
+		header( 'X-Redis-Cache-Status: BYPASS' );
 		// Allow an external configuration file to append to the bail method.
 		if ( self::$bail_callback && is_callable( self::$bail_callback ) ) {
 			$callback_result = call_user_func( self::$bail_callback );
@@ -391,11 +394,12 @@ class Redis_Page_Cache {
 			// Don't cache anything if these cookies are set.
 			foreach ( array( 'wp', 'wordpress', 'comment_author' ) as $part ) {
 				if ( strpos( $key, $part ) === 0 && ! in_array( $key, self::$ignore_cookies ) ) {
+					header( 'X-Redis-Cache-Status: BYPASS cookie' );
 					return true;
 				}
 			}
 		}
-
+		header( 'X-Pj-Cache-Status: MISS' );
 		return false; // Don't bail.
 	}
 
