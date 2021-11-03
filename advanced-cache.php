@@ -590,18 +590,17 @@ class Redis_Page_Cache {
 	 * @param bool $expire Expire cache by default, or delete if set to false.
 	 */
 	public static function clear_cache_by_url( $urls, $expire = true ) {
+		$blog_id = get_current_blog_id();
 		if ( is_string( $urls ) )
 			$urls = array( $urls );
 
-		foreach ( $urls as $url ) {
-			$flag = 'url:' . self::get_url_hash( $url );
+			$page_id_array = array_map(
+				function( $url ) {
+					return url_to_postid( $url );
+				}, $urls
+			);
 
-			if ( $expire ) {
-				self::$flags_expire[] = $flag;
-			} else {
-				self::$flags_delete[] = $flag;
-			}
-		}
+			self::clear_cache_by_post_id( $page_id_array, $expire );
 	}
 
 	/**
