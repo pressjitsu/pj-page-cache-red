@@ -9,6 +9,10 @@
 if ( ! defined( 'ABSPATH' ) )
 	die();
 
+// Override variables Comma Delimited
+$always_purge_urls_override = array();
+$always_purge_urls_override = explode(",", getenv('ALWAYS_PURGE_URLS'));
+
 class Redis_Page_Cache {
 	private static $redis;
 	private static $redis_host = '127.0.0.1';
@@ -674,19 +678,24 @@ class Redis_Page_Cache {
 	 * @param bool $expire Expire cache by default, or delete if set to false.
 	 */
 	public static function clear_cache_by_post_id( $post_id, $expire = true ) {
+		global $always_purge_urls_override;
 		$blog_id = get_current_blog_id();
 		$home = get_option( 'home' );
 
-		// Todo, perhaps flag these and expire by home:blog_id flag.
-		self::clear_cache_by_url( array(
-			trailingslashit( $home ),
-			$home,
-		), $expire );
+		$purge_posts = array_map(
+			function( $url ) use(&$blog_id) {
+				return sprintf( 'post:%d:%d', $blog_id, url_to_postid( $url ) );
+			}, $always_purge_urls_override
+		);
 
-		self::clear_cache_by_flag( array(
+		$default_purge_posts = array(
+			sprintf( 'post:%d:%d', $blog_id, url_to_postid( $home ) ),
 			sprintf( 'post:%d:%d', $blog_id, $post_id ),
-			sprintf( 'feed:%d', $blog_id ),
-		), $expire );
+			sprintf( 'feed:%d', $blog_id )
+		);
+
+		$merge_purge_posts = array_merge( $purge_posts, $default_purge_posts );
+		self::clear_cache_by_flag( $merge_purge_posts, $expire );
 	}
 
 	/**
