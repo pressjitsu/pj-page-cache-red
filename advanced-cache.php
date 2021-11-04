@@ -16,6 +16,7 @@ class Redis_Page_Cache {
 	private static $redis_db = 0;
 	private static $redis_auth = '';
 	private static $redis_persistent = false;
+	private static $redis_prefix = '';
 
 	private static $ttl = 300;
 	private static $max_ttl = 3600;
@@ -103,8 +104,8 @@ class Redis_Page_Cache {
 
 		// Look for an existing cache entry by request hash.
 		list( $cache, $lock ) = $redis->mGet( array(
-			sprintf( 'pjc-%s', self::$request_hash ),
-			sprintf( 'pjc-%s-lock', self::$request_hash ),
+			sprintf( self::$redis_prefix . 'pjc:%s', self::$request_hash ),
+			sprintf( self::$redis_prefix . 'pjc:%s-lock', self::$request_hash ),
 		) );
 
 		// Something is in cache.
@@ -117,8 +118,8 @@ class Redis_Page_Cache {
 			}
 
 			$redis->multi();
-			$redis->zRangeByScore( 'pjc-expired-flags', $cache['updated'], '+inf', array( 'withscores' => true ) );
-			$redis->zRangeByScore( 'pjc-deleted-flags', $cache['updated'], '+inf', array( 'withscores' => true ) );
+			$redis->zRangeByScore( self::$redis_prefix . 'pjc:expired-flags', $cache['updated'], '+inf', array( 'withscores' => true ) );
+			$redis->zRangeByScore( self::$redis_prefix . 'pjc:deleted-flags', $cache['updated'], '+inf', array( 'withscores' => true ) );
 			list( $expired_flags, $deleted_flags ) = $redis->exec();
 
 			$expired = $cache['updated'] + self::$ttl < time();
@@ -150,7 +151,7 @@ class Redis_Page_Cache {
 
 				// If it's not locked, lock it for regeneration and don't serve from cache.
 				if ( ! $lock ) {
-					$lock = $redis->set( sprintf( 'pjc-%s-lock', self::$request_hash ), true, array( 'nx', 'ex' => 30 ) );
+					$lock = $redis->set( sprintf( self::$redis_prefix . 'pjc:%s-lock', self::$request_hash ), true, array( 'nx', 'ex' => 30 ) );
 					if ( $lock ) {
 						if ( self::can_fcgi_regenerate() ) {
 							// Well, actually, if we can serve a stale copy but keep the process running
@@ -411,6 +412,7 @@ class Redis_Page_Cache {
 			'redis_auth',
 			'redis_db',
 			'redis_persistent',
+			'redis_prefix',
 
 			'ttl',
 			'unique',
@@ -505,13 +507,13 @@ class Redis_Page_Cache {
 
 			if ( $cache ) {
 				// Okay to cache.
-				$redis->set( sprintf( 'pjc-%s', self::$request_hash ), $data );
+				$redis->set( sprintf( self::$redis_prefix . 'pjc:%s', self::$request_hash ), $data );
 			} else {
 				// Not okay, so delete any stale entry.
-				$redis->del( sprintf( 'pjc-%s', self::$request_hash ) );
+				$redis->del( sprintf( self::$redis_prefix . 'pjc:%s', self::$request_hash ) );
 			}
 
-			$redis->del( sprintf( 'pjc-%s-lock', self::$request_hash ) );
+			$redis->del( sprintf( self::$redis_prefix . 'pjc:%s-lock', self::$request_hash ) );
 			$redis->exec();
 		}
 
@@ -628,10 +630,10 @@ class Redis_Page_Cache {
 		$sets = array();
 
 		if ( ! empty( self::$flags_expire ) )
-			$sets['pjc-expired-flags'] = self::$flags_expire;
+			$sets[self::$redis_prefix . 'pjc:expired-flags'] = self::$flags_expire;
 
 		if ( ! empty( self::$flags_delete ) )
-			$sets['pjc-deleted-flags'] = self::$flags_delete;
+			$sets[self::$redis_prefix . 'pjc:deleted-flags'] = self::$flags_delete;
 
 		if ( empty( $sets ) )
 			return;
