@@ -12,6 +12,8 @@ if ( ! defined( 'ABSPATH' ) )
 // Override variables Comma Delimited
 $always_purge_urls_override = array();
 $always_purge_urls_override = explode(",", getenv('ALWAYS_PURGE_URLS'));
+$never_cache_urls = array();
+$never_cache_urls = explode(",", getenv('NEVER_CACHE_URLS'));
 
 class Redis_Page_Cache {
 	private static $redis;
@@ -392,6 +394,11 @@ class Redis_Page_Cache {
 		if ( self::$ttl < 1 )
 			return true;
 
+		// Always Bypass Specified Pages 
+		if ( ! empty($never_cache_urls) && $never_cache_urls !== null && in_array($_SERVER['REQUEST_URI'], $never_cache_urls)) {
+			return true;
+		}
+		
 		foreach ( $_COOKIE as $key => $value ) {
 			$key = strtolower( $key );
 
